@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+:root {
+  font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #eef1f5;
+  color: #1f2329;
+  font-size: 13px;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #c8cdd6;
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(230, 55, 55, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(230, 55, 55, 0); }
+}
+.animate-risk-red {
+  animation: pulse-red 1.6s ease-in-out infinite;
+}
+
+@keyframes fade-slide-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-card-in {
+  animation: fade-slide-in 0.28s ease-out both;
+}
+
+@keyframes typing-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+.typing-dot {
+  animation: typing-dot 1.2s infinite;
+}
