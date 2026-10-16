@@ -26,13 +26,35 @@ export const postSend = (id: string, text: string) =>
     body: JSON.stringify({ text }),
   });
 
-// 试跑：现场输入买家问题（文本 + 可选图片）创建临时会话；demo 时自动出演客服回复与买家反应
-export const postTry = (text: string, imageDataUrl?: string | null, demo = false) =>
+// 试跑：现场输入买家问题（文本 + 可选图片 + 可选关联订单/工单 + 可选买家画像）创建临时会话
+export const postTry = (
+  text: string,
+  imageDataUrl?: string | null,
+  demo = false,
+  opts: { orderId?: string | null; ticketId?: string | null; buyerType?: string } = {},
+) =>
   j<{ id: string }>('/api/try', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, imageDataUrl: imageDataUrl || null, demo }),
+    body: JSON.stringify({
+      text,
+      imageDataUrl: imageDataUrl || null,
+      demo,
+      orderId: opts.orderId || null,
+      ticketId: opts.ticketId || null,
+      buyerType: opts.buyerType || 'default',
+    }),
   });
+
+// 试跑「可选关联」：从赛题 MOCK 库搜索订单 / 工单
+export const searchOrders = (q: string) =>
+  j<{ items: Array<{ id: string; name: string; amount: number; status: string; buyer: string; courier: string; tracking: string }> }>(
+    `/api/refs/orders?q=${encodeURIComponent(q)}`,
+  );
+export const searchTickets = (q: string) =>
+  j<{ items: Array<{ id: string; kind: string; kindLabel: string; orderId: string; buyer: string; status: string; reason: string }> }>(
+    `/api/refs/tickets?q=${encodeURIComponent(q)}`,
+  );
 
 // 试跑记录删除：仅影响 TRY 前缀会话与其运行时记录，不触碰赛题数据与对账口径
 export const deleteTry = (id: string) => j<{ ok: boolean; id: string }>(`/api/try/${encodeURIComponent(id)}`, { method: 'DELETE' });

@@ -1,5 +1,53 @@
 @import "tailwindcss";
 
+/* 深色模式：.dark 类切换（默认浅色；开启后框架级反色适配，图表 canvas 反色保持可读） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+.dark body {
+  background: #0b1220;
+  color: #e2e8f0;
+}
+.dark .bg-white {
+  background-color: #0f172a !important;
+}
+.dark .bg-slate-50,
+.dark .bg-slate-100 {
+  background-color: #1e293b !important;
+}
+.dark .bg-slate-200 {
+  background-color: #334155 !important;
+}
+.dark .bg-slate-100\/90 {
+  background-color: #1e293b !important;
+}
+.dark .bg-\[#f3f5f9\] {
+  background-color: #0b1220 !important;
+}
+.dark .border-slate-200,
+.dark .border-slate-100 {
+  border-color: #334155 !important;
+}
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: #e2e8f0 !important;
+}
+.dark .text-slate-400,
+.dark .text-slate-300 {
+  color: #94a3b8 !important;
+}
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-slate-50\/70:hover {
+  background-color: #334155 !important;
+}
+/* ECharts canvas 深色下反色：白底变深底、文字同步反色，保持图表可读 */
+.dark .echart-canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 :root {
   font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
 }

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSession, sessionList, DEMO_SESSIONS, datasetStats, createTrySession, trySessionList, appendTryMessages, appendExtraMessages, extraMessages, getTrySession, deleteTrySession, clearTrySessions } from '../store.js';
+import { getSession, sessionList, DEMO_SESSIONS, datasetStats, createTrySession, trySessionList, appendTryMessages, appendExtraMessages, extraMessages, getTrySession, deleteTrySession, clearTrySessions, searchOrders, searchTickets } from '../store.js';
 import { ruleAnalyze } from '../engine/analyze.js';
 import { demoDialogue, buyerNextReaction } from '../engine/simulate.js';
 import { insights } from '../engine/insights.js';
@@ -9,6 +9,23 @@ import { llmAvailable, textModel, vlModel } from '../llm/qwen.js';
 import { dbStatus } from '../db.js';
 
 const api = Router();
+
+// —— 写接口轻量限流：站点已公网可访问，防止被脚本批量刷写试跑/动作记录（内存计数，单实例演示足够，不影响正常操作）——
+const writeBuckets = new Map(); // ip -> { count, ts }
+api.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  const ip = String(req.headers['x-forwarded-for']?.split(',')[0] || '').trim() || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const b = writeBuckets.get(ip);
+  if (!b || now - b.ts > 60000) {
+    writeBuckets.set(ip, { count: 1, ts: now });
+  } else if (b.count >= 60) {
+    return res.status(429).json({ error: '操作过于频繁，请稍后再试' });
+  } else {
+    b.count += 1;
+  }
+  next();
+});
 
 api.get('/health', (req, res) => {
   res.json({ ok: true, llm: llmAvailable(), textModel: textModel(), vlModel: vlModel(), storage: dbStatus() });
@@ -58,8 +75,9 @@ api.get('/sessions', (req, res) => {
       sceneMinor: minor,
       msgs: s.stats.msgs,
       images: s.stats.images,
-      hasOrder: false,
-      ticketKinds: [],
+      hasOrder: !!s.order,
+      ticketKinds: s.tickets.map((t) => t.kind),
+      buyerType: s.buyerType || 'default',
       preview: lastBuyerMsg ? lastBuyerMsg.text.slice(0, 40) : '',
       demo: null,
       riskLevel: a.risk.level,
@@ -71,11 +89,19 @@ api.get('/sessions', (req, res) => {
   res.json({ sessions: [...tryList, ...list], total: tryList.length + list.length });
 });
 
-// 试跑：现场输入买家问题（文本 + 可选图片）→ 临时会话，走同一引擎与 Agent 工作流
+// 试跑「可选关联」搜索：从赛题 MOCK 库检索订单 / 工单（关键词：订单号/商品/买家/物流单号等）
+api.get('/refs/orders', (req, res) => {
+  res.json({ items: searchOrders(String(req.query.q || '')) });
+});
+api.get('/refs/tickets', (req, res) => {
+  res.json({ items: searchTickets(String(req.query.q || '')) });
+});
+
+// 试跑：现场输入买家问题（文本 + 可选图片 + 可选关联订单/工单 + 可选买家画像）→ 临时会话，走同一引擎与 Agent 工作流
 // demo=true：自动出演「客服共情回复 + 买家收到回复后的反应」（仅追加演示对话，不执行任何动作）
 api.post('/try', async (req, res) => {
   try {
-    const { text, imageDataUrl, demo } = req.body || {};
+    const { text, imageDataUrl, demo, orderId, ticketId, buyerType } = req.body || {};
     const t = String(text || '').trim();
     if (!t && !imageDataUrl) throw Object.assign(new Error('请至少输入买家消息或上传一张图片'), { status: 400 });
     if (t.length > 2000) throw Object.assign(new Error('文本过长（最多 2000 字）'), { status: 400 });
@@ -83,7 +109,13 @@ api.post('/try', async (req, res) => {
       if (!String(imageDataUrl).startsWith('data:image/')) throw Object.assign(new Error('图片格式不支持'), { status: 400 });
       if (String(imageDataUrl).length > 3 * 1024 * 1024) throw Object.assign(new Error('图片过大（压缩后仍超过 3MB）'), { status: 400 });
     }
-    const session = await createTrySession({ text: t, imageDataUrl: imageDataUrl || null });
+    const session = await createTrySession({
+      text: t,
+      imageDataUrl: imageDataUrl || null,
+      orderId: orderId ? String(orderId) : null,
+      ticketId: ticketId ? String(ticketId) : null,
+      buyerType: String(buyerType || 'default'),
+    });
     if (demo) {
       const analysis = ruleAnalyze(session);
       await appendTryMessages(session, await demoDialogue(session, analysis));
@@ -205,6 +237,7 @@ api.post('/sessions/:id/send', async (req, res) => {
       agentText: text,
       priorLive,
       usedTexts,
+      buyerType: session.buyerType || 'default',
     });
     // 人工发送触发的出演按正常对话显示（不带「演示模拟」徽标），与试跑自动播放的消息区分
     const buyer = { role: '买家', sender: '买家', isBuyer: true, text: reaction.text, simulated: false };

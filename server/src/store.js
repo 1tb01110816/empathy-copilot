@@ -210,6 +210,59 @@ export function getTicket(id) {
   return ticketsById.get(id) || null;
 }
 
+// —— 试跑「可选关联」搜索：从赛题 MOCK 库检索订单 / 工单（按订单号/商品/买家/物流单号等关键词）——
+function pickOrderRef(o) {
+  return {
+    id: o['订单号'],
+    name: o['商品名称'],
+    amount: Number(o['实付金额(元)'] || 0),
+    status: o['订单状态'],
+    buyer: o['买家昵称'],
+    courier: o['快递公司'],
+    tracking: o['物流单号'],
+  };
+}
+
+export function searchOrders(q = '') {
+  const t = String(q).trim().toLowerCase();
+  const all = [...ordersById.values()];
+  if (!t) return all.slice(0, 8).map(pickOrderRef);
+  return all
+    .filter((o) =>
+      [o['订单号'], o['商品名称'], o['商品货号'], o['买家昵称'], o['物流单号'], o['订单状态']].some((v) =>
+        String(v || '').toLowerCase().includes(t),
+      ),
+    )
+    .slice(0, 8)
+    .map(pickOrderRef);
+}
+
+function pickTicketRef(tk) {
+  return {
+    id: tk['工单号'],
+    kind: tk.kind,
+    kindLabel: tk.kindLabel,
+    orderId: tk['关联订单号'] || '',
+    buyer: tk['买家昵称'],
+    status: tk['工单状态'] || tk['任务状态'],
+    reason: String(tk['症状描述'] || tk['退货原因'] || tk['问题类型'] || tk['售后原因'] || tk['退款问题类型'] || '').slice(0, 24),
+  };
+}
+
+export function searchTickets(q = '') {
+  const t = String(q).trim().toLowerCase();
+  const all = [...ticketsById.values()];
+  if (!t) return all.slice(0, 8).map(pickTicketRef);
+  return all
+    .filter((tk) =>
+      [tk['工单号'], tk['关联订单号'], tk['买家昵称'], tk['使用商品'], tk['症状描述'], tk['退货原因'], tk['问题类型'], tk['售后原因'], tk['退款问题类型']].some((v) =>
+        String(v || '').toLowerCase().includes(t),
+      ),
+    )
+    .slice(0, 8)
+    .map(pickTicketRef);
+}
+
 export function getBuyer(nick) {
   return buyerIndex.get(nick) || null;
 }
@@ -285,7 +338,7 @@ async function deleteTrySessionRow(id) {
   await dbQuery('DELETE FROM runtime_messages WHERE session_id = ?', [id]);
 }
 
-export async function createTrySession({ text = '', imageDataUrl = null } = {}) {
+export async function createTrySession({ text = '', imageDataUrl = null, orderId = null, ticketId = null, buyerType = 'default' } = {}) {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
   const base = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
@@ -334,8 +387,9 @@ export async function createTrySession({ text = '', imageDataUrl = null } = {}) 
     buyer: '试跑买家',
     shop: '测试美妆旗舰店',
     messages,
-    order: null,
-    tickets: [],
+    order: orderId ? getOrder(orderId) : null,
+    tickets: ticketId ? [getTicket(ticketId)].filter(Boolean) : [],
+    buyerType: ['urgent', 'hesitant', 'rational', 'default'].includes(buyerType) ? buyerType : 'default',
     scenes: [],
     startTime: messages[0].time,
     endTime: messages[messages.length - 1].time,
@@ -440,6 +494,7 @@ async function loadTrySessionsFromDb() {
       messages,
       order: null,
       tickets: [],
+      buyerType: 'default',
       scenes: [],
       startTime: r.start_time,
       endTime: r.end_time,

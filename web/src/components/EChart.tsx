@@ -47,5 +47,5 @@ export default function EChart({ option, height = 160, className = '' }: { optio
     chartRef.current?.setOption(option, true);
   }, [option]);
 
-  return <div ref={ref} className={className} style={{ height, width: '100%' }} />;
+  return <div ref={ref} className={`echart-canvas ${className}`} style={{ height, width: '100%' }} />;
 }

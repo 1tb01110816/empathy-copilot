@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "db:import": "node scripts/db-import.js"
+    "db:import": "node scripts/db-import.js",
+    "test": "node --test test"
   },
   "dependencies": {
     "cors": "^2.8.5",

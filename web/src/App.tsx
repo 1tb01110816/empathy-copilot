@@ -18,10 +18,16 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('workbench');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [sessions, setSessions] = useState<SessionBrief[]>([]);
+  // 深色模式：localStorage 持久化
+  const [dark, setDark] = useState<boolean>(() => localStorage.getItem('ec:dark') === '1');
   // 记住上次选中的会话：页面刷新/HMR 重载后不跳回默认会话（试跑会话与演示消息不"消失"）
   const [selectedId, setSelectedId] = useState<string | null>(() => localStorage.getItem('ec:selectedId') || 'S00010');
   const [bootErr, setBootErr] = useState('');
   const [tryOpen, setTryOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('ec:dark', dark ? '1' : '0');
+  }, [dark]);
 
   const refreshSessions = useCallback(() => {
     return getSessions()
@@ -90,7 +96,7 @@ export default function App() {
   const stats = overview?.stats;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className={`flex h-full flex-col ${dark ? 'dark' : ''}`}>
       {/* 顶栏 */}
       <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
         <div className="flex items-center gap-2">
@@ -116,6 +122,13 @@ export default function App() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setDark((v) => !v)}
+            className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+            title="切换深色 / 浅色模式（框架级适配）"
+          >
+            {dark ? '浅色模式' : '深色模式'}
+          </button>
           {stats && (
             <span className="hidden text-[10px] text-slate-400 lg:block">
               {stats.sessions} 会话 · {stats.messages} 消息 · {stats.tickets} 工单

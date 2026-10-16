@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Analysis, SessionBrief, SessionDetail, TraceStep } from '../types';
 import { getSession, postAction, postSend, streamSession, type StreamHandle } from '../api';
+import { exportSessionReport } from '../lib/exportReport';
 import { EXECUTABLE } from '../ui';
 import SessionList from '../components/SessionList';
 import ChatPanel from '../components/ChatPanel';
@@ -212,6 +213,23 @@ export default function Workbench({
         <div className="animate-card-in fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900/92 px-4 py-2 text-[12px] text-white shadow-lg">
           {toast}
         </div>
+      )}
+
+      {detail && analysis && (
+        <button
+          onClick={() => {
+            try {
+              exportSessionReport(detail, trace);
+              showToast('演示报告已导出（浏览器下载 HTML 文件）');
+            } catch (e) {
+              showToast(`导出失败：${(e as Error).message}`);
+            }
+          }}
+          className="fixed right-4 top-16 z-40 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 shadow-md transition hover:border-emerald-300 hover:text-emerald-600"
+          title="导出当前会话完整演示链路（HTML 报告，可直接打开/打印 PDF）"
+        >
+          导出演示报告
+        </button>
       )}
     </div>
   );

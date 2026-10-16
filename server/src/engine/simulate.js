@@ -70,10 +70,65 @@ const FOLLOWUP_GENERICS = [
   '这边会持续跟进您的问题，处理进度主动同步，您安心等待就好，谢谢理解。',
 ];
 
+// —— 买家画像分型：出演措辞与性格提示按画像变化（演示"因人而异"）——
+// 命中画像时优先使用画像专属通用模板；default 走原场景模板
+export const BUYER_TYPES = {
+  default: { label: '默认', hint: '情绪缓和、配合沟通，就事论事地回应。' },
+  urgent: {
+    label: '急躁型',
+    hint: '急性子，说话直接、爱催促，但收到明确安排后会较快平复。',
+    progress: [
+      '行吧，那你可得快点，别又让我等半天啊。',
+      '那你们抓紧点吧，最烦这种事了，赶紧给我弄好。',
+      '行，我就再信你一回，别拖拖拉拉的，有动静马上告诉我。',
+    ],
+    closing: [
+      '那行吧，这次就相信你们，别再出岔子了，谢了。',
+      '行，那就这样吧，弄好了记得马上通知我。',
+      '成，那就等你们消息，可别又拖，谢谢了。',
+    ],
+  },
+  hesitant: {
+    label: '犹豫型',
+    hint: '顾虑较多、反复确认、语气迟疑，需要客服多次安抚和确定性承诺。',
+    progress: [
+      '那……真的没问题吗？那我再等等看吧，你们别弄错了哈。',
+      '嗯……那好吧，我再确认一下，你们真的会帮我处理好对吧？',
+      '那好吧，我先等着，要是有什么问题你们一定要及时跟我说呀。',
+    ],
+    closing: [
+      '好的好的，那我就放心多了，谢谢你们这么耐心。',
+      '那就这样吧，听你们这么说我也踏实了，谢谢啊。',
+      '好，那我心里就有底了，真的谢谢你们。',
+    ],
+  },
+  rational: {
+    label: '理性型',
+    hint: '冷静克制、就事论事、条理清晰，关注处理时效与结果确定性。',
+    progress: [
+      '可以，方案可以接受。请同步处理时效，我按约定时间跟进。',
+      '明白。那麻烦按你说的流程推进，处理节点请主动同步给我。',
+      '好的，逻辑上可以接受。保持信息同步即可，谢谢。',
+    ],
+    closing: [
+      '收到，确认达成一致。感谢配合，后续按约定跟进。',
+      '好的，结果已知悉，处理闭环即可。辛苦了。',
+      '确认无误，谢谢你们规范处理。',
+    ],
+  },
+};
+
 let genSeq = 0;
 
 // used：对话中已出现过的买家文本集合；传入时优先挑未出现过的模板，避免出演与演示/历史复读
-export function templateReaction(sceneKey, stage = 'progress', used = null) {
+// buyerType：买家画像（default/urgent/hesitant/rational）——画像有专属模板时优先使用，体现"因人而异"
+export function templateReaction(sceneKey, stage = 'progress', used = null, buyerType = 'default') {
+  const bt = BUYER_TYPES[buyerType];
+  const btPool = bt && stage === 'closing' ? bt.closing : bt && bt.progress;
+  if (btPool?.length) {
+    const fresh = btPool.find((t) => !used?.has(t));
+    return fresh || btPool[genSeq++ % btPool.length];
+  }
   const primary = stage === 'closing' ? CLOSINGS[sceneKey] : PROGRESS[sceneKey];
   const generics = stage === 'closing' ? CLOSING_GENERICS : PROGRESS_GENERICS;
   if (used?.size) {
@@ -87,9 +142,9 @@ export function templateFollowup(sceneKey) {
   return FOLLOWUPS[sceneKey] || FOLLOWUP_GENERICS[genSeq++ % FOLLOWUP_GENERICS.length];
 }
 
-const SYS = [
+const SYS = (btHint) => [
   '你是电商买家演员。请替买家连续写两条再回复：第一条是刚收到客服共情回复后的即时回应',
-  '（情绪缓和、表示理解或愿意配合，等待处理结果）；第二条是随后收到客服「处理进度已在跟进」',
+  `（情绪缓和、表示理解或愿意配合，等待处理结果）${btHint ? `买家性格：${btHint}` : ''}；第二条是随后收到客服「处理进度已在跟进」`,
   '的确认话术后，表达安心、认可与感谢的收尾回应（视为问题已圆满解决）。',
   '只输出 JSON：{"reactions":["第一条","第二条"]}。要求：每条 40 字以内、口语化；',
   '不复述任何诉求细节、产品词、金额、单号；不提退货/退款/赔偿等任何处理方式；不要反问句。',
@@ -97,11 +152,13 @@ const SYS = [
 
 const validReaction = (t) => !!t && t.length <= 60 && !t.includes('\n') && !classifyText(t);
 
-export async function buyerReactions({ sceneKey, buyerText, replyText }) {
+export async function buyerReactions({ sceneKey, buyerText, replyText, buyerType = 'default' }) {
+  const bt = BUYER_TYPES[buyerType];
+  const btHint = bt && buyerType !== 'default' ? bt.hint : '';
   if (llmAvailable()) {
     try {
       const { json } = await chatJson({
-        system: SYS,
+        system: SYS(btHint),
         user: `买家场景：${sceneKey}\n买家此前原话：${buyerText}\n客服刚回复：${replyText}`,
         temperature: 0.8,
         maxTokens: 320,
@@ -114,16 +171,21 @@ export async function buyerReactions({ sceneKey, buyerText, replyText }) {
       /* 无 Key / 超时 / 解析失败 → 模板兜底 */
     }
   }
-  return { texts: [templateReaction(sceneKey, 'progress'), templateReaction(sceneKey, 'closing')], source: 'template' };
+  return {
+    texts: [templateReaction(sceneKey, 'progress', null, buyerType), templateReaction(sceneKey, 'closing', null, buyerType)],
+    source: 'template',
+  };
 }
 
 // 组装演示对话（4 条：客服回复 → 买家回应 → 客服跟进 → 买家收尾）
 export async function demoDialogue(session, analysis) {
   const lastBuyer = [...session.messages].reverse().find((m) => m.isBuyer);
+  const buyerType = session.buyerType || 'default';
   const reactions = await buyerReactions({
     sceneKey: analysis.sceneKey,
     buyerText: lastBuyer?.text || '',
     replyText: analysis.reply,
+    buyerType,
   });
   const sender = `${session.shop}:演示客服`;
   return [
@@ -145,12 +207,14 @@ const LIVE_SYS = [
 
 // priorLive：此前人工已发送的客服回复条数（0 起）；1 条后买家确认解决；>=2 条时 /send 不再调用本函数（闭环收尾，买家不再出演回复）
 // usedTexts：对话中已出现过的买家文本（含演示模拟）——出演文本避开它们，避免复读
-export async function buyerNextReaction({ sceneKey, history, agentText, priorLive = 0, usedTexts = [] }) {
+export async function buyerNextReaction({ sceneKey, history, agentText, priorLive = 0, usedTexts = [], buyerType = 'default' }) {
   const used = new Set(usedTexts.map((t) => String(t || '').replace(/\s+/g, ' ').trim()).filter(Boolean));
+  const bt = BUYER_TYPES[buyerType];
+  const btHint = bt && buyerType !== 'default' ? bt.hint : '';
   if (llmAvailable()) {
     try {
       const { json } = await chatJson({
-        system: LIVE_SYS,
+        system: LIVE_SYS + (btHint ? `\n买家性格：${btHint}` : ''),
         user: `对话记录：\n${history}\n客服最新回复：${agentText}`,
         temperature: 0.8,
         maxTokens: 220,
@@ -163,5 +227,5 @@ export async function buyerNextReaction({ sceneKey, history, agentText, priorLiv
     }
   }
   const resolved = priorLive >= 1;
-  return { text: templateReaction(sceneKey, resolved ? 'closing' : 'progress', used), resolved, source: 'template' };
+  return { text: templateReaction(sceneKey, resolved ? 'closing' : 'progress', used, buyerType), resolved, source: 'template' };
 }

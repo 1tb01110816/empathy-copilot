@@ -40,9 +40,20 @@ export const REPLY_TEMPLATES = {
 const GENERIC_REPLY = (c) =>
   `亲亲您好，已收到您的诉求${c?.sceneMinor ? `（${c.sceneMinor}）` : ''}，非常理解您现在的心情。这边马上为您核实处理，处理进度会主动同步给您，请放心。`;
 
+// —— 话术「接情绪」前缀：根据买家当前情绪状态差异化开场，让话术贴合消费者心理（规则层，无 Key 也可用）——
+// 仅在情绪较强时注入前缀，语义为「认可情绪 + 明确路径」，避免与场景模板开头重复道歉
+const EMPATHY_PREFIX = {
+  激烈冲突: '亲亲，收到您的情绪了，真的很抱歉让您这样不愉快。您说的每一点我都记下了，我们一定给您一个明确的交代：',
+  强烈不满: '亲亲，理解您现在非常生气，让您有这种体验是我们的问题。您的诉求我已锁定，马上为您推进：',
+  '明显不满/焦虑': '理解您现在的着急，请放心，您的情况我已经锁定，马上为您跟进处理：',
+  轻度疑虑: '亲亲，您提到的这个点很关键，我来帮您确认清楚：',
+};
+
 export function templateReply(sceneKey, ctx = {}) {
   const fn = REPLY_TEMPLATES[sceneKey];
-  return fn ? fn(ctx) : GENERIC_REPLY(ctx);
+  const body = fn ? fn(ctx) : GENERIC_REPLY(ctx);
+  const prefix = ctx.emotionState ? EMPATHY_PREFIX[ctx.emotionState] || '' : '';
+  return prefix ? `${prefix}${body}` : body;
 }
 
 // —— 话术随对话轮次演进：开场共情 → 跟进推进 → 收尾安抚 ——
@@ -140,6 +151,7 @@ export function ruleAnalyze(session, uptoSeq = Infinity) {
     amount: fusion.order?.amount,
     sceneMinor: top?.minor,
     urgent: ['售后退货/仅退款疑似异常', '补发换货/破损换货'].includes(sceneKey),
+    emotionState: emotion.state,
   });
 
   return {

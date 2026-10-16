@@ -12,7 +12,9 @@
     "dev:server": "npm --workspace server run dev",
     "dev:web": "npm --workspace web run dev",
     "build": "npm --workspace web run build",
-    "start": "npm --workspace server run start"
+    "start": "npm --workspace server run start",
+    "test": "npm --workspace server run test",
+    "typecheck": "npm --workspace web run typecheck"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
