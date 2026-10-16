@@ -49,8 +49,8 @@ export default function CopilotPanel(p: Props) {
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
         <div className="text-[13px] font-semibold text-slate-700">共情副驾</div>
-        <span className={`rounded border px-1.5 py-px text-[10px] ${analysis.llm ? 'border-violet-200 bg-violet-50 text-violet-600' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-          {analysis.llm ? `通义千问 · ${analysis.llmModels?.text || 'qwen'}` : p.llmAvailable ? '规则模式' : '规则模式（未配置 Key）'}
+        <span className={`rounded border px-1.5 py-px text-[10px] ${analysis.llm ? 'border-violet-200 bg-violet-50 text-violet-600' : 'border-sky-200 bg-sky-50 text-sky-600'}`}>
+          {analysis.llm ? `通义千问 · ${analysis.llmModels?.text || 'qwen'}` : '标准模式'}
         </span>
         {analysis.elapsedMs != null && <span className="text-[10px] text-slate-400">{(analysis.elapsedMs / 1000).toFixed(1)}s</span>}
         <div className="ml-auto flex items-center gap-1">

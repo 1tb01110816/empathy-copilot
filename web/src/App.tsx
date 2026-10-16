@@ -126,29 +126,32 @@ export default function App() {
               className={`rounded-full border px-2.5 py-1 text-[10px] ${
                 overview.storage.mode === 'mysql'
                   ? 'border-sky-200 bg-sky-50 text-sky-600'
-                  : 'border-slate-200 bg-slate-50 text-slate-500'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-600'
               }`}
               title={
                 overview.storage.mode === 'mysql'
                   ? `试跑记录持久化到 MySQL（${overview.storage.host} / ${overview.storage.database}）`
-                  : `未接入 MySQL（${overview.storage.reason || '未配置'}）——试跑记录重启后清空`
+                  : `演示数据模式（未接入 MySQL：${overview.storage.reason || '未配置'}）——试跑记录重启后清空`
               }
             >
-              存储：{overview.storage.mode === 'mysql' ? `MySQL · ${overview.storage.database}` : '内存模式'}
+              存储：{overview.storage.mode === 'mysql' ? `MySQL · ${overview.storage.database}` : '演示数据'}
             </span>
           )}
           <span
             className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] ${
               llm?.available
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-600'
-                : 'border-amber-200 bg-amber-50 text-amber-600'
+                : 'border-sky-200 bg-sky-50 text-sky-600'
             }`}
-            title={llm?.available ? '已配置 DASHSCOPE_API_KEY，Agent 工作流将调用通义千问' : '在 server/.env 配置 DASHSCOPE_API_KEY 后启用'}
+            title={
+              llm?.available
+                ? '已配置 DASHSCOPE_API_KEY，Agent 工作流将调用通义千问'
+                : '标准模式已就绪；配置 DASHSCOPE_API_KEY 后可启用通义千问 Agent 模式'
+            }
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${llm?.available ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            {llm?.available ? `通义千问已接入 · ${llm.textModel} / ${llm.vlModel}` : '通义千问未配置（规则模式可用）'}
+            <span className={`h-1.5 w-1.5 rounded-full ${llm?.available ? 'bg-emerald-500' : 'bg-sky-500'}`} />
+            {llm?.available ? `通义千问已接入 · ${llm.textModel} / ${llm.vlModel}` : '标准模式 · 已就绪'}
           </span>
-          <span className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] text-slate-400">MOCK 虚构数据</span>
         </div>
       </header>
 
@@ -176,6 +179,11 @@ export default function App() {
           {tab === 'insights' && <InsightsView onOpen={openSession} />}
         </Suspense>
       </div>
+
+      {/* 页脚：数据合规声明 */}
+      <footer className="shrink-0 border-t border-slate-100 bg-white px-4 py-1 text-center text-[10px] text-slate-300">
+        共情副驾 Empathy Copilot · 全部数据为赛题 MOCK 虚构数据，仅供演示
+      </footer>
 
       {tryOpen && (
         <Suspense fallback={null}>

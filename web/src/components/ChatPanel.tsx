@@ -108,12 +108,22 @@ export default function ChatPanel({ detail, uptoSeq, onUptoChange, lastBuyerSeq,
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+              e.preventDefault();
+              const t = draft.trim();
+              if (!t || sending) return;
+              onSend(t).then((ok) => {
+                if (ok) setDraft('');
+              });
+            }
+          }}
           placeholder="输入回复，或点击右侧副驾话术「采纳并发送」自动填入…"
           rows={3}
           className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 p-2 text-[12px] leading-5 outline-none focus:border-sky-300 focus:bg-white"
         />
         <div className="mt-1.5 flex items-center gap-2">
-          <span className="text-[10px] text-slate-400">发送后买家侧自动出演回应（不执行任何动作）</span>
+          <span className="text-[10px] text-slate-400">发送后买家侧自动出演回应（不执行任何动作） · Ctrl+Enter 发送</span>
           <button
             onClick={async () => {
               const t = draft.trim();

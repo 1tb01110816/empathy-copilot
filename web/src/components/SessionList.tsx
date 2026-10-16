@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionBrief } from '../types';
 import { RISK_META } from '../ui';
 
 type Filter = 'all' | 'demo' | 'red' | 'yellow' | 'green';
+
+const RISK_ORDER: Record<string, number> = { red: 0, yellow: 1, green: 2 };
 
 export default function SessionList({
   sessions,
@@ -21,8 +23,10 @@ export default function SessionList({
 }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [kw, setKw] = useState('');
+  const [focusIdx, setFocusIdx] = useState(-1);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const list = useMemo(() => {
+  const filtered = useMemo(() => {
     return sessions.filter((s) => {
       if (filter === 'demo' && !s.demo) return false;
       if ((filter === 'red' || filter === 'yellow' || filter === 'green') && s.riskLevel !== filter) return false;
@@ -34,9 +38,38 @@ export default function SessionList({
     });
   }, [sessions, filter, kw]);
 
-  const tryList = list.filter((s) => s.tryMode);
-  const demoList = list.filter((s) => s.demo && !s.tryMode);
-  const rest = list.filter((s) => !s.demo && !s.tryMode);
+  const tryList = useMemo(() => filtered.filter((s) => s.tryMode), [filtered]);
+  const demoList = useMemo(() => filtered.filter((s) => s.demo && !s.tryMode), [filtered]);
+  // 全部会话：按风险等级排序（红 → 黄 → 绿），高优先级置顶
+  const rest = useMemo(
+    () => filtered.filter((s) => !s.demo && !s.tryMode).sort((a, b) => (RISK_ORDER[a.riskLevel] ?? 9) - (RISK_ORDER[b.riskLevel] ?? 9)),
+    [filtered],
+  );
+
+  // 键盘导航用的扁平列表（与渲染顺序一致）
+  const flatList = useMemo(() => [...tryList, ...demoList, ...rest], [tryList, demoList, rest]);
+
+  useEffect(() => {
+    const idx = flatList.findIndex((s) => s.id === selectedId);
+    setFocusIdx(idx);
+  }, [selectedId, flatList]);
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+    const n = flatList.length;
+    if (!n) return;
+    e.preventDefault();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const cur = focusIdx >= 0 ? focusIdx : -1;
+      const next = e.key === 'ArrowDown' ? Math.min(cur + 1, n - 1) : Math.max(cur - 1, 0);
+      setFocusIdx(next);
+      onSelect(flatList[next].id);
+      const el = listRef.current?.querySelector(`[data-session-id="${flatList[next].id}"]`);
+      el?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && focusIdx >= 0 && focusIdx < n) {
+      onSelect(flatList[focusIdx].id);
+    }
+  };
 
   const chips: Array<{ key: Filter; label: string }> = [
     { key: 'all', label: '全部' },
@@ -51,7 +84,7 @@ export default function SessionList({
       <div className="border-b border-slate-200 p-3">
         <div className="mb-2 flex items-center justify-between">
           <div className="text-[13px] font-semibold text-slate-700">客户接待 · 会话列表</div>
-          <div className="text-[11px] text-slate-400">{list.length} 个会话</div>
+          <div className="text-[11px] text-slate-400">{filtered.length} 个会话</div>
         </div>
         <button
           onClick={onTry}
@@ -80,7 +113,13 @@ export default function SessionList({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={listRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className="min-h-0 flex-1 overflow-y-auto outline-none"
+        aria-label="会话列表（可用 ↑ ↓ 方向键切换，Enter 打开）"
+      >
         {tryList.length > 0 && (
           <div className="px-3 pt-2">
             <div className="mb-1 flex items-center justify-between">
@@ -116,7 +155,7 @@ export default function SessionList({
             ))}
           </>
         )}
-        {list.length === 0 && <div className="p-6 text-center text-[12px] text-slate-400">没有匹配的会话</div>}
+        {filtered.length === 0 && <div className="p-6 text-center text-[12px] text-slate-400">没有匹配的会话</div>}
       </div>
     </div>
   );
@@ -126,6 +165,7 @@ function DemoCard({ s, active, onSelect }: { s: SessionBrief; active: boolean; o
   const meta = RISK_META[s.riskLevel];
   return (
     <button
+      data-session-id={s.id}
       onClick={() => onSelect(s.id)}
       className={`mb-1.5 w-full rounded-lg border p-2.5 text-left transition ${
         active ? 'border-sky-300 bg-sky-50/70 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'
@@ -161,6 +201,7 @@ function Row({
   const meta = RISK_META[s.riskLevel];
   return (
     <button
+      data-session-id={s.id}
       onClick={() => onSelect(s.id)}
       className={`flex w-full items-start gap-2 border-b border-slate-100 px-3 py-2 text-left transition ${
         active ? 'bg-sky-50/80' : 'hover:bg-slate-50'
@@ -188,7 +229,7 @@ function Row({
           title="删除这条试跑记录"
           onClick={(e) => {
             e.stopPropagation();
-            onDelete();
+            if (window.confirm(`确定删除试跑会话 ${s.id}？此操作不可恢复。`)) onDelete();
           }}
           className="mt-0.5 shrink-0 rounded px-1 text-[11px] leading-4 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
         >
