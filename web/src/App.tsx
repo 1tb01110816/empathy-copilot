@@ -26,6 +26,8 @@ export default function App() {
   const [tryOpen, setTryOpen] = useState(false);
 
   useEffect(() => {
+    // 深色 class 挂到 <html>：使 .dark body 等根级规则生效（挂组件 div 时 body 不随动）
+    document.documentElement.classList.toggle('dark', dark);
     localStorage.setItem('ec:dark', dark ? '1' : '0');
   }, [dark]);
 
