@@ -184,3 +184,10 @@ empathy-copilot/
 - 全部数据来自赛题提供的 **MOCK 虚构数据**，仅供演示；
 - API Key 只存放于本地 `server/.env`（已在 `.gitignore` 中忽略），不进入任何前端代码；
 - 风险分级与合规提示为业务演示口径，不构成医疗建议。
+
+## 九、公网部署（Railway）
+
+- 演示链接：https://empathy-copilot-production.up.railway.app
+- GitHub 仓库：https://github.com/1tb01110816/empathy-copilot（public）
+- 部署方式：Railway 免费 Trial 连接 GitHub 仓库，**main 分支开启自动部署（push 即触发）**；Railpack 自动构建 `npm install; npm run build`，启动命令 `npm run start`，监听端口由平台自动注入
+- 本地推送 `git push origin main` 后无需任何平台操作，约 1-3 分钟自动构建上线
