@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { Overview, SessionBrief } from './types';
-import { getOverview, getSessions, deleteTry, clearTry } from './api';
+import { getOverview, getSessions, deleteTry, clearTry, getAuthSession, logout } from './api';
+import LoginView from './components/LoginView';
 
 // 按 Tab 懒加载视图，减小首屏 bundle
 const Workbench = lazy(() => import('./views/Workbench'));
@@ -24,6 +25,26 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(() => localStorage.getItem('ec:selectedId') || 'S00010');
   const [bootErr, setBootErr] = useState('');
   const [tryOpen, setTryOpen] = useState(false);
+  // 鉴权：null=校验中；false=未登录（显示登录页）；true=已登录（渲染工作台）
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [authNotice, setAuthNotice] = useState('');
+
+  // 邀请链接失败/缺失口令时由 /enter 重定向回首页并带 ?auth=…，读取后清理地址栏
+  useEffect(() => {
+    const flag = new URLSearchParams(window.location.search).get('auth');
+    if (flag) {
+      setAuthNotice(flag === 'failed' ? '口令不正确，请重新输入' : flag === 'required' ? '请输入访问口令' : '');
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    getAuthSession()
+      .then((s) => {
+        setAuthEnabled(s.enabled);
+        setAuthed(s.authenticated);
+      })
+      // 鉴权端点异常（后端未启动等）时继续渲染主界面，由原有 bootErr 提示诊断
+      .catch(() => setAuthed(true));
+  }, []);
 
   useEffect(() => {
     // 深色 class 挂到 <html>：使 .dark body 等根级规则生效（挂组件 div 时 body 不随动）
@@ -38,6 +59,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!authed) return;
     Promise.all([getOverview(), getSessions()])
       .then(([ov, ss]) => {
         setOverview(ov);
@@ -46,7 +68,7 @@ export default function App() {
         setBootErr('');
       })
       .catch((e) => setBootErr(String(e.message || e)));
-  }, []);
+  }, [authed]);
 
   useEffect(() => {
     if (selectedId) localStorage.setItem('ec:selectedId', selectedId);
@@ -94,6 +116,39 @@ export default function App() {
     await refreshSessions();
   }, [selectedId, refreshSessions]);
 
+  // 退出登录：清除 Cookie 并回到登录页；接口失败也保持登出观感（旧 Cookie 由服务端校验）
+  const onLogout = useCallback(async () => {
+    try {
+      await logout();
+    } catch {
+      /* 忽略网络错误 */
+    }
+    setOverview(null);
+    setSessions([]);
+    setAuthNotice('');
+    setAuthed(false);
+  }, []);
+
+  if (authed === null) {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-100 text-[12px] text-slate-400">
+        正在验证访问权限…
+      </div>
+    );
+  }
+
+  if (!authed) {
+    return (
+      <LoginView
+        initialNotice={authNotice}
+        onSuccess={() => {
+          setAuthNotice('');
+          setAuthed(true);
+        }}
+      />
+    );
+  }
+
   const llm = overview?.llm;
   const stats = overview?.stats;
 
@@ -131,6 +186,15 @@ export default function App() {
           >
             {dark ? '浅色模式' : '深色模式'}
           </button>
+          {authEnabled && (
+            <button
+              onClick={onLogout}
+              className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+              title="退出登录（清除本机会话 Cookie）"
+            >
+              退出
+            </button>
+          )}
           {stats && (
             <span className="hidden text-[10px] text-slate-400 lg:block">
               {stats.sessions} 会话 · {stats.messages} 消息 · {stats.tickets} 工单

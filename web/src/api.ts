@@ -11,6 +11,15 @@ export const getSessions = () => j<{ sessions: SessionBrief[]; total: number }>(
 export const getSession = (id: string) => j<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`);
 export const getInsights = () => j<Insights>('/api/insights');
 
+export const getAuthSession = () => j<{ enabled: boolean; authenticated: boolean }>('/api/auth/session');
+export const login = (code: string) =>
+  j<{ ok: boolean; enabled: boolean }>('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+export const logout = () => j<{ ok: boolean }>('/api/auth/logout', { method: 'POST' });
+
 export const postAction = (id: string, type: string, payload?: Record<string, unknown>) =>
   j<{ record: ActionRecord; message: ChatMessage }>(`/api/sessions/${encodeURIComponent(id)}/action`, {
     method: 'POST',

@@ -24,7 +24,7 @@ app.listen(PORT, () => {
     ? `  通义千问：已启用（${textModel()} + ${vlModel()}）`
     : '  通义千问：未配置 DASHSCOPE_API_KEY，当前为规则引擎模式（server/.env 填入 Key 后自动启用）');
   console.log(accessEnabled()
-    ? `  访问口令：已启用 Basic Auth（用户名 ${process.env.APP_AUTH_USER || 'demo'}，/api/health 免鉴权）`
+    ? '  访问口令：已启用（登录页 / 邀请链接 /enter?code=…，7 天免登录；Basic Auth 兼容；/api/health 免鉴权）'
     : '  访问口令：未启用（本地开发模式，公网部署请设置 APP_ACCESS_CODE）');
   console.log('──────────────────────────────────────────────');
 });

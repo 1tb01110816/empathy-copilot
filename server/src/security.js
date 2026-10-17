@@ -1,29 +1,109 @@
 import crypto from 'node:crypto';
 
+const SESSION_COOKIE = 'ec_auth';
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export const sessionCookieName = SESSION_COOKIE;
+
 export function accessEnabled() {
   return !!process.env.APP_ACCESS_CODE;
 }
 
 function sameSecret(a, b) {
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
 }
 
-// Basic Auth 访问口令：未配置 APP_ACCESS_CODE 时保持本地开放，/api/health 始终免鉴权
-export function accessGuard(req, res, next) {
-  if (!accessEnabled() || req.method === 'OPTIONS' || req.path === '/api/health') return next();
-  const [scheme, encoded] = String(req.headers.authorization || '').split(' ');
-  let ok = false;
-  if (scheme === 'Basic' && encoded) {
-    const expected = Buffer.from(`${process.env.APP_AUTH_USER || 'demo'}:${process.env.APP_ACCESS_CODE}`);
+export function verifyAccessCode(code) {
+  if (!accessEnabled()) return false;
+  return sameSecret(String(code || ''), process.env.APP_ACCESS_CODE);
+}
+
+// 会话密钥始终混入访问口令：换口令即让全部旧 Cookie 失效（可选 APP_SESSION_SECRET 再加一层）
+function sessionKey() {
+  return `${process.env.APP_SESSION_SECRET || 'empathy-copilot-local'}:${process.env.APP_ACCESS_CODE || ''}`;
+}
+
+function signExpiry(exp) {
+  return crypto.createHmac('sha256', sessionKey()).update(String(exp)).digest('base64url');
+}
+
+function readCookie(req, name) {
+  const raw = String(req.headers?.cookie || '');
+  for (const part of raw.split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() !== name) continue;
     try {
-      ok = sameSecret(Buffer.from(encoded, 'base64'), expected);
+      return decodeURIComponent(part.slice(i + 1).trim());
     } catch {
-      ok = false;
+      return '';
     }
   }
-  if (ok) return next();
-  res.set('WWW-Authenticate', 'Basic realm="Empathy Copilot", charset="UTF-8"');
-  return res.status(401).json({ error: '需要访问口令' });
+  return '';
+}
+
+function hasCookieSession(req) {
+  const raw = readCookie(req, SESSION_COOKIE);
+  const dot = raw.indexOf('.');
+  if (dot <= 0) return false;
+  const expStr = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || exp <= Date.now() || exp > Date.now() + SESSION_TTL_MS + 60_000) return false;
+  return sameSecret(sig, signExpiry(expStr));
+}
+
+// Basic Auth 兼容：老链接 / curl -u 仍可使用，但不再主动弹浏览器原生框
+function hasBasicAuth(req) {
+  const [scheme, encoded] = String(req.headers?.authorization || '').split(' ');
+  if (scheme !== 'Basic' || !encoded) return false;
+  const expected = Buffer.from(`${process.env.APP_AUTH_USER || 'demo'}:${process.env.APP_ACCESS_CODE}`);
+  try {
+    return sameSecret(Buffer.from(encoded, 'base64'), expected);
+  } catch {
+    return false;
+  }
+}
+
+export function hasSession(req) {
+  if (!accessEnabled()) return true;
+  return hasCookieSession(req) || hasBasicAuth(req);
+}
+
+export function issueSession(req, res) {
+  const exp = Date.now() + SESSION_TTL_MS;
+  const value = `${exp}.${signExpiry(exp)}`;
+  if (typeof res.cookie === 'function') {
+    res.cookie(SESSION_COOKIE, value, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: !!req.secure,
+      path: '/',
+      maxAge: SESSION_TTL_MS,
+    });
+  } else {
+    res.setHeader(
+      'Set-Cookie',
+      `${SESSION_COOKIE}=${value}; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; HttpOnly; SameSite=Lax${req.secure ? '; Secure' : ''}`,
+    );
+  }
+}
+
+export function clearSession(req, res) {
+  if (typeof res.clearCookie === 'function') {
+    res.clearCookie(SESSION_COOKIE, { path: '/' });
+    return;
+  }
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);
+}
+
+export function accessGuard(req, res, next) {
+  if (!accessEnabled() || req.method === 'OPTIONS' || req.path === '/health' || req.path === '/api/health') return next();
+  if (hasSession(req)) return next();
+  res.set('Cache-Control', 'no-store');
+  return res.status(401).json({ error: '需要访问口令', code: 'AUTH_REQUIRED' });
 }
 
 export function securityHeaders(req, res, next) {

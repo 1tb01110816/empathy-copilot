@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import api from './routes/api.js';
+import auth from './routes/auth.js';
 import { accessGuard, securityHeaders } from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,9 +18,10 @@ if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process
 app.disable('x-powered-by');
 app.use(cors());
 app.use(securityHeaders);
-app.use(accessGuard);
 app.use(express.json({ limit: '4mb' }));
-app.use('/api', api);
+// 登录页、邀请链接与前端静态资源公开；业务 API 统一由 accessGuard 保护
+app.use(auth);
+app.use('/api', accessGuard, api);
 
 // 生产模式：托管前端构建产物
 const dist = path.join(ROOT, 'web', 'dist');

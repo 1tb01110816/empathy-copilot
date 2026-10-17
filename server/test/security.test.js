@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { accessGuard, createRateLimiter, securityHeaders } from '../src/security.js';
+import { accessGuard, createRateLimiter, hasSession, issueSession, sessionCookieName, securityHeaders } from '../src/security.js';
 
 function mockReq({ method = 'GET', path = '/api/overview', auth = '', ip = '127.0.0.1' } = {}) {
   return {
@@ -50,13 +50,14 @@ test('accessGuard: 未配置口令时直接放行', () => {
   assert.equal(res.statusCode, 200);
 });
 
-test('accessGuard: 配置口令后拒绝无凭证请求', () => {
+test('accessGuard: 配置口令后拒绝无凭证请求（不弹原生 Basic Auth 框）', () => {
   process.env.APP_ACCESS_CODE = 'secret-123';
   process.env.APP_AUTH_USER = 'demo';
   const { passed, res } = run(accessGuard, mockReq());
   assert.equal(passed, false);
   assert.equal(res.statusCode, 401);
-  assert.match(res.headers['www-authenticate'], /Basic realm/);
+  assert.equal(res.body.code, 'AUTH_REQUIRED');
+  assert.equal(res.headers['www-authenticate'], undefined);
   delete process.env.APP_ACCESS_CODE;
 });
 
@@ -72,6 +73,24 @@ test('accessGuard: /api/health 免鉴权', () => {
   process.env.APP_ACCESS_CODE = 'secret-123';
   assert.equal(run(accessGuard, mockReq({ path: '/api/health' })).passed, true);
   delete process.env.APP_ACCESS_CODE;
+});
+
+test('issueSession: 签发 HttpOnly Cookie 后可访问，篡改后失效', () => {
+  process.env.APP_ACCESS_CODE = 'secret-123';
+  process.env.APP_SESSION_SECRET = 'test-secret';
+  const res = mockRes();
+  issueSession(mockReq(), res);
+  const setCookie = res.headers['set-cookie'];
+  assert.match(setCookie, new RegExp(`${sessionCookieName}=`));
+  assert.match(setCookie, /HttpOnly/);
+  assert.match(setCookie, /SameSite=Lax/);
+  const cookie = setCookie.split(';')[0];
+  assert.equal(hasSession({ headers: { cookie } }), true);
+  assert.equal(hasSession({ headers: { cookie: `${cookie}x` } }), false);
+  assert.equal(hasSession({ headers: { cookie: `${sessionCookieName}=1.bad` } }), false);
+  assert.equal(hasSession({ headers: { cookie: `${sessionCookieName}=%E0%A4%A` } }), false);
+  delete process.env.APP_ACCESS_CODE;
+  delete process.env.APP_SESSION_SECRET;
 });
 
 test('createRateLimiter: 超过窗口上限返回 429 并带 Retry-After', () => {
