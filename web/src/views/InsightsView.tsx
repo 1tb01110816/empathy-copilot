@@ -1,21 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Insights, InsightSession } from '../types';
+import type { AgreementBreakdown, Insights, InsightSession } from '../types';
 import { getInsights } from '../api';
-import { RISK_META, fmtPct } from '../ui';
+import { RISK_META } from '../ui';
 import EChart from '../components/EChart';
 
-const AGREEMENT_LABEL: Record<string, string> = {
-  scene: '场景（细分）',
-  sceneMajor: '场景（大类归并）',
-  level: '风险等级',
-  actions: '应对动作',
-  overall: '综合一致率',
-};
+const METRICS: Array<{ key: keyof AgreementBreakdown; label: string }> = [
+  { key: 'sceneStrict', label: '场景（严格）' },
+  { key: 'scene', label: '场景（等价归并）' },
+  { key: 'level', label: '风险等级' },
+  { key: 'actions', label: '动作覆盖' },
+  { key: 'strictOverall', label: '综合（严格）' },
+];
+
+const fmtRate = (v: number) => `${Math.round(v * 1000) / 10}%`;
+const rateCls = (v: number) => (v >= 0.99 ? 'text-emerald-600' : v >= 0.9 ? 'text-amber-600' : 'text-rose-500');
+const fmtSec = (v: number) => (v < 60 ? `${Math.round(v)}s` : `${Math.floor(v / 60)}m${String(Math.round(v % 60)).padStart(2, '0')}s`);
 
 export default function InsightsView({ onOpen }: { onOpen: (id: string) => void }) {
   const [data, setData] = useState<Insights | null>(null);
   const [err, setErr] = useState('');
   const [onlyDemo, setOnlyDemo] = useState(false);
+  const [onlyHoldout, setOnlyHoldout] = useState(false);
   const [onlyMismatch, setOnlyMismatch] = useState(false);
 
   useEffect(() => {
@@ -29,8 +34,10 @@ export default function InsightsView({ onOpen }: { onOpen: (id: string) => void 
 
   const rows = useMemo(() => {
     if (!data) return [];
-    return data.perSession.filter((p) => (!onlyDemo || p.demo) && (!onlyMismatch || !p.evalPass));
-  }, [data, onlyDemo, onlyMismatch]);
+    return data.perSession.filter(
+      (p) => (!onlyDemo || p.demo) && (!onlyHoldout || p.holdout) && (!onlyMismatch || !p.strictPass),
+    );
+  }, [data, onlyDemo, onlyHoldout, onlyMismatch]);
 
   const riskOption = useMemo(() => {
     if (!data) return null;
@@ -110,39 +117,80 @@ export default function InsightsView({ onOpen }: { onOpen: (id: string) => void 
           ))}
         </div>
 
+        {/* 业务价值代理指标 */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-[13px] font-semibold text-slate-800">业务价值代理指标</div>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700">
+              全量 {data.business.sample} 条 MOCK 对话
+            </span>
+            <span className="text-[10px] text-slate-400">非真实 CSAT，均为会话时间戳 / 轮次 / 情绪 / 画像的可复算代理口径</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+            {[
+              ['首响均值', fmtSec(data.business.firstResponse.avgSec), `样本 ${data.business.firstResponse.samples}`],
+              ['首响 P90', fmtSec(data.business.firstResponse.p90Sec), `≤${data.business.firstResponse.slaSec}s 达标 ${fmtRate(data.business.firstResponse.slaRate)}`],
+              ['平均会话时长', `${data.business.handle.avgMin} 分`, `P90 ${data.business.handle.p90Min} 分`],
+              ['买家平均发言', `${data.business.engagement.buyerMsgsAvg} 条`, `图片会话 ${fmtRate(data.business.engagement.imageSessionRate)}`],
+              ['老客复访会话占比', fmtRate(data.business.repeatSessionRate), '按买家历史接待次数'],
+              ['高风险会话占比', fmtRate(data.business.highRiskRate), `RED ${data.riskCount.red} 条`],
+              ['明显情绪缓和率', fmtRate(data.business.emotionRelief.rate), `${data.business.emotionRelief.calm}/${data.business.emotionRelief.total} · 平均回落 ${data.business.emotionRelief.avgDrop} 分`],
+              ['买家正向收尾率', fmtRate(data.business.positiveClose.rate), `${data.business.positiveClose.positive}/${data.business.positiveClose.total} · 词典代理`],
+            ].map(([label, value, sub]) => (
+              <div key={label} className="rounded-lg border border-slate-100 bg-slate-50/60 p-2.5">
+                <div className="text-[10px] text-slate-400">{label}</div>
+                <div className="mt-1 text-[18px] font-semibold tabular-nums text-slate-800">{value}</div>
+                <div className="mt-0.5 text-[9px] leading-3 text-slate-400">{sub}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 text-[10px] leading-4 text-slate-400">
+            首响 = 买家首条消息 → 客服首条回复；情绪缓和 = 峰值 ≥45 的会话中末条较峰值下降 ≥10 分的比例；
+            正向收尾按「谢谢 / 放心 / 满意 / 解决」等词表判定，仅作演示代理，不等同真实满意度调研。
+          </div>
+        </div>
+
         <div className="grid grid-cols-3 gap-4">
-          {/* 一致率 */}
+          {/* 留出集评估 */}
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between">
-              <div className="text-[13px] font-semibold text-slate-800">引擎 × 数据标注 一致率</div>
-              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-600">
-                {data.mismatches.length === 0 ? '全量对齐 ✓' : `${data.mismatches.length} 条不一致`}
+              <div className="text-[13px] font-semibold text-slate-800">留出集评估 × 数据标注</div>
+              <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] text-sky-700">
+                留出 {data.split.holdoutCount} / {data.split.total}
               </span>
             </div>
-            <div className="mt-3 space-y-2.5">
-              {Object.entries(AGREEMENT_LABEL).map(([k, label]) => {
-                const v = data.agreement[k] ?? 0;
-                return (
-                  <div key={k}>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-slate-500">{label}</span>
-                      <span className={`font-medium tabular-nums ${v >= 1 ? 'text-emerald-600' : v >= 0.9 ? 'text-amber-600' : 'text-rose-500'}`}>
-                        {fmtPct(v)}
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className={`h-full rounded-full ${v >= 1 ? 'bg-emerald-500' : v >= 0.9 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                        style={{ width: `${Math.round(v * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="mt-2 flex items-end gap-2">
+              <div className={`text-[30px] font-semibold leading-none tabular-nums ${rateCls(data.holdoutAgreement.sceneStrict)}`}>
+                {fmtRate(data.holdoutAgreement.sceneStrict)}
+              </div>
+              <div className="pb-0.5 text-[10px] leading-3 text-slate-400">
+                留出集严格场景一致率
+                <br />
+                {Math.round(data.holdoutAgreement.sceneStrict * data.split.holdoutCount)} / {data.split.holdoutCount} 条
+              </div>
+            </div>
+            <div className="mt-3 space-y-1.5">
+              <div className="grid grid-cols-[1fr_48px_48px_48px] gap-1.5 text-[9px] text-slate-400">
+                <span>指标</span>
+                <span className="text-right">留出</span>
+                <span className="text-right">内测</span>
+                <span className="text-right">全量</span>
+              </div>
+              {METRICS.map(({ key, label }) => (
+                <div key={key} className="grid grid-cols-[1fr_48px_48px_48px] items-center gap-1.5 text-[11px]">
+                  <span className="truncate text-slate-500">{label}</span>
+                  <span className={`text-right font-medium tabular-nums ${rateCls(data.holdoutAgreement[key])}`}>
+                    {fmtRate(data.holdoutAgreement[key])}
+                  </span>
+                  <span className={`text-right tabular-nums ${rateCls(data.devAgreement[key])}`}>{fmtRate(data.devAgreement[key])}</span>
+                  <span className={`text-right tabular-nums ${rateCls(data.agreement[key])}`}>{fmtRate(data.agreement[key])}</span>
+                </div>
+              ))}
             </div>
             <div className="mt-3 rounded-lg bg-slate-50 p-2 text-[10px] leading-4 text-slate-500">
-              口径：场景分类、红黄绿分级、应对动作三项逐一比对数据表标注（结果表 OUTCOME / 工单表 / 会话场景列），综合一致 = 三项全部命中。
-              少数场景按业务等价组归并（如「物流异常/包裹破损」与「补发换货/破损换货」视为同一处理口径）。
+              按标注场景大类分层，SHA-256(seed:会话ID) 排序取 30%，确定性可复算；留出集不参与规则调校。
+              严格场景 = 与标注细分场景精确匹配、不做等价归并；综合严格 = 严格场景 + 等级 + 动作覆盖。
+              规则由赛题数据人工校准，本指标用于校正全量内测的乐观偏差。
             </div>
           </div>
 
@@ -226,8 +274,11 @@ export default function InsightsView({ onOpen }: { onOpen: (id: string) => void 
             </span>
             <div className="ml-auto flex gap-2">
               <FilterChip active={onlyDemo} onClick={() => setOnlyDemo((v) => !v)}>仅演示线</FilterChip>
+              <FilterChip active={onlyHoldout} onClick={() => setOnlyHoldout((v) => !v)}>
+                仅留出集（{data.split.holdoutCount}）
+              </FilterChip>
               <FilterChip active={onlyMismatch} onClick={() => setOnlyMismatch((v) => !v)}>
-                仅不一致（{data.mismatches.length}）
+                仅严格不一致（{data.strictMismatches.length}）
               </FilterChip>
             </div>
           </div>
@@ -242,6 +293,7 @@ export default function InsightsView({ onOpen }: { onOpen: (id: string) => void 
                   <th className="px-2 py-2 text-center font-medium">等级 引擎/标注</th>
                   <th className="px-2 py-2 text-right font-medium">峰值</th>
                   <th className="px-2 py-2 text-center font-medium">场景</th>
+                  <th className="px-2 py-2 text-center font-medium" title="细分场景精确匹配，不做等价归并">严格场景</th>
                   <th className="px-2 py-2 text-center font-medium">等级</th>
                   <th className="px-2 py-2 text-center font-medium">动作</th>
                 </tr>
@@ -281,6 +333,7 @@ function Row({ p, onOpen }: { p: InsightSession; onOpen: (id: string) => void })
     >
       <td className="px-4 py-1.5">
         <span className="font-mono text-[10px] text-slate-500">{p.id}</span>
+        {p.holdout && <span className="ml-1.5 rounded bg-sky-50 px-1 py-px text-[9px] text-sky-600">留出</span>}
         {p.demo && <span className="ml-1.5 rounded bg-indigo-50 px-1 py-px text-[9px] text-indigo-500">演示</span>}
       </td>
       <td className="px-2 py-1.5 text-slate-600">{p.buyer}</td>
@@ -293,6 +346,9 @@ function Row({ p, onOpen }: { p: InsightSession; onOpen: (id: string) => void })
       </td>
       <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{Math.round(p.peak)}</td>
       <td className={`px-2 py-1.5 text-center ${ok(p.sceneOk)}`}>{p.sceneOk ? '✓' : '✕'}</td>
+      <td className={`px-2 py-1.5 text-center ${ok(p.sceneExact)}`} title={p.sceneExact ? '' : `引擎 ${p.sceneKey} ↔ 标注 ${p.gtScene}`}>
+        {p.sceneExact ? '✓' : '✕'}
+      </td>
       <td className={`px-2 py-1.5 text-center ${ok(p.levelOk)}`}>{p.levelOk ? '✓' : '✕'}</td>
       <td className={`px-2 py-1.5 text-center ${ok(p.actionOk)}`}>
         {p.actionOk ? '✓' : <span title={p.missing.join('、')}>✕</span>}

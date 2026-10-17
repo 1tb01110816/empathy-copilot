@@ -164,6 +164,20 @@ export interface Evidence {
   error?: string;
 }
 
+export interface LlmCallTelemetry {
+  kind: string;
+  model: string;
+  ms: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface ComplianceFilter {
+  filtered: boolean;
+  violations: { code: string; label: string }[];
+}
+
 export interface Analysis {
   sessionId: string;
   uptoSeq: number;
@@ -186,6 +200,8 @@ export interface Analysis {
   engine: 'rules' | 'agent';
   llm: boolean;
   llmModels?: { text: string; vl: string } | null;
+  llmTelemetry?: LlmCallTelemetry[];
+  complianceFilter?: ComplianceFilter | null;
   elapsedMs?: number;
 }
 
@@ -254,7 +270,11 @@ export interface InsightSession {
   current: number;
   switched: boolean;
   demo: boolean;
+  holdout: boolean;
+  sceneExact: boolean;
+  sceneMajorOk: boolean;
   evalPass: boolean;
+  strictPass: boolean;
   sceneOk: boolean;
   levelOk: boolean;
   actionOk: boolean;
@@ -264,18 +284,54 @@ export interface InsightSession {
   topReason: string;
 }
 
+export interface AgreementBreakdown {
+  sceneStrict: number;
+  scene: number;
+  sceneMajor: number;
+  level: number;
+  actions: number;
+  strictOverall: number;
+  overall: number;
+}
+
+export interface HoldoutSplit {
+  method: string;
+  seed: string;
+  ratio: number;
+  total: number;
+  holdoutCount: number;
+  devCount: number;
+  holdoutIds: string[];
+}
+
 // riskSessions / topUpset 是精简投影（pick()），字段不全
 export type InsightSessionBrief = Pick<InsightSession, 'id' | 'buyer' | 'sceneKey' | 'level' | 'peak' | 'msgs' | 'demo' | 'topReason'>;
+
+export interface BusinessMetrics {
+  sample: number;
+  firstResponse: { avgSec: number; p90Sec: number; slaSec: number; slaRate: number; samples: number };
+  handle: { avgMin: number; p90Min: number; samples: number };
+  engagement: { buyerMsgsAvg: number; buyerMsgsSamples: number; imageSessionRate: number };
+  repeatSessionRate: number;
+  highRiskRate: number;
+  emotionRelief: { rate: number; total: number; calm: number; avgDrop: number };
+  positiveClose: { rate: number; total: number; positive: number };
+}
 
 export interface Insights {
   stats: Overview['stats'];
   riskCount: Record<RiskLevel, number>;
-  agreement: Record<string, number>;
+  business: BusinessMetrics;
+  agreement: AgreementBreakdown;
+  holdoutAgreement: AgreementBreakdown;
+  devAgreement: AgreementBreakdown;
+  split: HoldoutSplit;
   riskSessions: { red: InsightSessionBrief[]; yellow: InsightSessionBrief[] };
   topUpset: InsightSessionBrief[];
   sceneDistribution: Array<{ key: string; count: number }>;
   ticketHotspots: Array<{ kind: string; reason: string; count: number }>;
   mismatches: InsightSession[];
+  strictMismatches: InsightSession[];
   perSession: InsightSession[];
 }
 

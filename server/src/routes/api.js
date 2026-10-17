@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import { getSession, sessionList, DEMO_SESSIONS, datasetStats, createTrySession, trySessionList, appendTryMessages, appendExtraMessages, extraMessages, getTrySession, deleteTrySession, clearTrySessions, searchOrders, searchTickets } from '../store.js';
+import { getSession, sessionList, DEMO_SESSIONS, datasetStats, createTrySession, trySessionList, appendTryMessages, appendExtraMessages, extraMessages, clearExtraMessages, getTrySession, deleteTrySession, clearTrySessions, searchOrders, searchTickets } from '../store.js';
 import { ruleAnalyze } from '../engine/analyze.js';
-import { demoDialogue, buyerNextReaction } from '../engine/simulate.js';
+import { demoDialogue, buyerNextReaction, BUYER_TYPES } from '../engine/simulate.js';
 import { insights } from '../engine/insights.js';
 import { runPipeline } from '../pipeline.js';
 import { executeAction, runtimeActions, runtimeMessages, ACTION_DEFS, clearRuntime } from '../actions.js';
 import { llmAvailable, textModel, vlModel } from '../llm/qwen.js';
+import { llmUsage } from '../llm/telemetry.js';
 import { dbStatus } from '../db.js';
 import { accessEnabled, createRateLimiter } from '../security.js';
 
@@ -34,6 +35,27 @@ const tryLimiter = createRateLimiter({
 api.use(apiLimiter);
 api.use(writeLimiter);
 
+// 会话 ID 仅允许字母/数字/下划线/中划线，长度受限；非法入参在进入业务前直接拒绝
+const ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
+api.param('id', (req, res, next, id) => {
+  if (!ID_RE.test(id)) return res.status(400).json({ error: '非法会话 ID' });
+  next();
+});
+
+const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
+
+// 动作 payload 仅接受小体积普通对象，金额/加急标记做类型与范围校验
+function validateActionPayload(payload) {
+  if (payload === undefined || payload === null) return {};
+  if (typeof payload !== 'object' || Array.isArray(payload)) throw badRequest('动作 payload 必须是对象');
+  if (JSON.stringify(payload).length > 2048) throw badRequest('动作 payload 过大');
+  if ('amount' in payload && (!Number.isFinite(payload.amount) || payload.amount < 0 || payload.amount > 5000)) {
+    throw badRequest('金额必须是 0–5000 的数字');
+  }
+  if ('urgent' in payload && typeof payload.urgent !== 'boolean') throw badRequest('urgent 必须是布尔值');
+  return payload;
+}
+
 api.get('/health', (req, res) => {
   res.json({ ok: true, auth: accessEnabled(), llm: llmAvailable(), textModel: textModel(), vlModel: vlModel(), storage: dbStatus() });
 });
@@ -49,6 +71,11 @@ api.get('/overview', (req, res) => {
     agreement: ins.agreement,
     actions: Object.entries(ACTION_DEFS).map(([type, def]) => ({ type, label: def.label })),
   });
+});
+
+// LLM 调用可观测性：进程内累计调用次数 / token / 耗时（重启归零，演示实例足够）
+api.get('/llm/usage', (req, res) => {
+  res.json(llmUsage());
 });
 
 api.get('/sessions', (req, res) => {
@@ -98,10 +125,10 @@ api.get('/sessions', (req, res) => {
 
 // 试跑「可选关联」搜索：从赛题 MOCK 库检索订单 / 工单（关键词：订单号/商品/买家/物流单号等）
 api.get('/refs/orders', (req, res) => {
-  res.json({ items: searchOrders(String(req.query.q || '')) });
+  res.json({ items: searchOrders(String(req.query.q || '').slice(0, 100)) });
 });
 api.get('/refs/tickets', (req, res) => {
-  res.json({ items: searchTickets(String(req.query.q || '')) });
+  res.json({ items: searchTickets(String(req.query.q || '').slice(0, 100)) });
 });
 
 // 试跑：现场输入买家问题（文本 + 可选图片 + 可选关联订单/工单 + 可选买家画像）→ 临时会话，走同一引擎与 Agent 工作流
@@ -110,11 +137,15 @@ api.post('/try', tryLimiter, async (req, res) => {
   try {
     const { text, imageDataUrl, demo, orderId, ticketId, buyerType } = req.body || {};
     const t = String(text || '').trim();
-    if (!t && !imageDataUrl) throw Object.assign(new Error('请至少输入买家消息或上传一张图片'), { status: 400 });
-    if (t.length > 2000) throw Object.assign(new Error('文本过长（最多 2000 字）'), { status: 400 });
+    if (!t && !imageDataUrl) throw badRequest('请至少输入买家消息或上传一张图片');
+    if (t.length > 2000) throw badRequest('文本过长（最多 2000 字）');
+    if (demo !== undefined && typeof demo !== 'boolean') throw badRequest('demo 必须是布尔值');
+    if (orderId && String(orderId).length > 64) throw badRequest('订单号过长');
+    if (ticketId && String(ticketId).length > 64) throw badRequest('工单号过长');
+    if (buyerType !== undefined && !BUYER_TYPES[String(buyerType)]) throw badRequest('未知买家画像');
     if (imageDataUrl) {
-      if (!String(imageDataUrl).startsWith('data:image/')) throw Object.assign(new Error('图片格式不支持'), { status: 400 });
-      if (String(imageDataUrl).length > 3 * 1024 * 1024) throw Object.assign(new Error('图片过大（压缩后仍超过 3MB）'), { status: 400 });
+      if (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(String(imageDataUrl))) throw badRequest('图片格式不支持');
+      if (String(imageDataUrl).length > 3 * 1024 * 1024) throw badRequest('图片过大（压缩后仍超过 3MB）');
     }
     const session = await createTrySession({
       text: t,
@@ -166,7 +197,13 @@ api.get('/sessions/:id', (req, res) => {
 api.get('/sessions/:id/stream', streamLimiter, async (req, res) => {
   const session = getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'session not found' });
-  const uptoSeq = req.query.upto ? Number(req.query.upto) : Infinity;
+  let uptoSeq = Infinity;
+  if (req.query.upto !== undefined) {
+    uptoSeq = Number(req.query.upto);
+    if (!Number.isInteger(uptoSeq) || uptoSeq < 1 || uptoSeq > 1_000_000) {
+      return res.status(400).json({ error: 'upto 必须是 1–1000000 的整数' });
+    }
+  }
   const mode = req.query.mode === 'agent' ? 'agent' : 'rules';
 
   res.writeHead(200, {
@@ -206,7 +243,8 @@ api.get('/sessions/:id/stream', streamLimiter, async (req, res) => {
 api.post('/sessions/:id/action', async (req, res) => {
   try {
     const { type, payload } = req.body || {};
-    const result = await executeAction(req.params.id, type, payload);
+    if (!ACTION_DEFS[type]) throw badRequest('未知动作类型');
+    const result = await executeAction(req.params.id, type, validateActionPayload(payload));
     res.json(result);
   } catch (e) {
     res.status(e.status || 500).json({ error: String(e.message || e) });
@@ -251,6 +289,23 @@ api.post('/sessions/:id/send', async (req, res) => {
     if (session.tryMode) await appendTryMessages(session, [agent, buyer]);
     else appendExtraMessages(session.id, [agent, buyer]);
     res.json({ ok: true, resolved: reaction.resolved, source: reaction.source });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: String(e.message || e) });
+  }
+});
+
+// 一键重置演示状态：仅清空真实演示会话的运行时动作/消费者回执与人工发送对话层，不触碰赛题 138 条数据
+// 试跑会话请走 DELETE /api/try/:id 删除重建
+api.post('/sessions/:id/reset', async (req, res) => {
+  try {
+    const session = getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: 'session not found' });
+    if (session.tryMode) {
+      return res.status(400).json({ error: '试跑会话请直接在列表删除后重建（避免混入历史出演消息）' });
+    }
+    clearExtraMessages(session.id);
+    clearRuntime(session.id);
+    res.json({ ok: true, id: session.id });
   } catch (e) {
     res.status(e.status || 500).json({ error: String(e.message || e) });
   }

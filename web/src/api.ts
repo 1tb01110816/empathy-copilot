@@ -60,6 +60,10 @@ export const searchTickets = (q: string) =>
 export const deleteTry = (id: string) => j<{ ok: boolean; id: string }>(`/api/try/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const clearTry = () => j<{ ok: boolean; deleted: number }>('/api/try', { method: 'DELETE' });
 
+// 一键重置演示状态：仅清空真实演示会话的运行时动作/回执与人工发送对话层
+export const resetSession = (id: string) =>
+  j<{ ok: boolean; id: string }>(`/api/sessions/${encodeURIComponent(id)}/reset`, { method: 'POST' });
+
 export interface StreamHandle {
   close: () => void;
 }

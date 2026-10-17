@@ -22,6 +22,13 @@ const STAGE_META: Record<string, { label: string; cls: string }> = {
   closing: { label: '收尾安抚', cls: 'border-emerald-200 bg-emerald-50 text-emerald-600' },
 };
 
+const LLM_KIND_LABEL: Record<string, string> = {
+  emotion: '情绪复评',
+  summary: '摘要',
+  script: '话术',
+  vision: '图片证据',
+};
+
 export default function CopilotPanel(p: Props) {
   const { detail, analysis, trace, streaming, running } = p;
   const risk = analysis.risk;
@@ -33,6 +40,16 @@ export default function CopilotPanel(p: Props) {
   const summary = typeof analysis.summary === 'string'
     ? { headline: analysis.summary, focus: risk.reasons.slice(0, 3), source: 'rules' }
     : analysis.summary;
+  const llmCalls = analysis.llmTelemetry || [];
+  const llmTotal = llmCalls.reduce(
+    (acc, c) => ({ tokens: acc.tokens + (c.totalTokens || 0), ms: acc.ms + (c.ms || 0) }),
+    { tokens: 0, ms: 0 },
+  );
+  const llmByKind = llmCalls.reduce<Record<string, { calls: number; tokens: number }>>((acc, c) => {
+    const k = c.kind || 'text';
+    acc[k] = { calls: (acc[k]?.calls || 0) + 1, tokens: (acc[k]?.tokens || 0) + (c.totalTokens || 0) };
+    return acc;
+  }, {});
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -319,6 +336,30 @@ export default function CopilotPanel(p: Props) {
             })}
             {trace.length === 0 && <li className="text-[11px] text-slate-400">点击「规则剖析」或「Agent 工作流」运行</li>}
           </ol>
+          {(llmCalls.length > 0 || analysis.complianceFilter) && (
+            <div className="mt-2 space-y-1 border-t border-slate-100 pt-1.5 text-[10px] text-slate-400">
+              {llmCalls.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span>模型调用 {llmCalls.length} 次 · {llmTotal.tokens} tok · {(llmTotal.ms / 1000).toFixed(1)}s</span>
+                  {Object.entries(llmByKind).map(([kind, v]) => (
+                    <span key={kind} className="rounded bg-slate-50 px-1 py-px text-slate-500">
+                      {LLM_KIND_LABEL[kind] || kind} ×{v.calls} · {v.tokens} tok
+                    </span>
+                  ))}
+                </div>
+              )}
+              {analysis.complianceFilter && (
+                <div className="flex items-center gap-1">
+                  <span className="rounded bg-slate-50 px-1 py-px text-slate-500">合规过滤</span>
+                  <span className={`rounded border px-1 py-px ${analysis.complianceFilter.filtered ? 'border-rose-200 bg-rose-50 text-rose-600' : 'border-emerald-200 bg-emerald-50 text-emerald-600'}`}>
+                    {analysis.complianceFilter.filtered
+                      ? `已拦截：${analysis.complianceFilter.violations.map((v) => v.label).join('、')}`
+                      : '通过（医疗/功效/赔付等边界）'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* 已执行动作 */}

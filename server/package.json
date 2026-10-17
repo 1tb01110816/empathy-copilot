@@ -7,7 +7,7 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "db:import": "node scripts/db-import.js",
-    "test": "node --test"
+    "test": "node --test --test-force-exit"
   },
   "dependencies": {
     "cors": "^2.8.5",

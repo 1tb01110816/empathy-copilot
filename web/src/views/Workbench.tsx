@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Analysis, SessionBrief, SessionDetail, TraceStep } from '../types';
-import { getSession, postAction, postSend, streamSession, type StreamHandle } from '../api';
+import { getSession, postAction, postSend, resetSession, streamSession, type StreamHandle } from '../api';
 import { exportSessionReport } from '../lib/exportReport';
 import { EXECUTABLE } from '../ui';
 import SessionList from '../components/SessionList';
 import ChatPanel from '../components/ChatPanel';
 import CopilotPanel from '../components/CopilotPanel';
+import WalkthroughModal from '../components/WalkthroughModal';
 
 export default function Workbench({
   sessions,
@@ -15,6 +16,7 @@ export default function Workbench({
   onTry,
   onDeleteTry,
   onClearTry,
+  onOpenConsumer,
 }: {
   sessions: SessionBrief[];
   selectedId: string | null;
@@ -23,6 +25,7 @@ export default function Workbench({
   onTry: () => void;
   onDeleteTry: (id: string) => void;
   onClearTry: () => void;
+  onOpenConsumer: () => void;
 }) {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -35,8 +38,15 @@ export default function Workbench({
   const [adoptKey, setAdoptKey] = useState(0);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [engineMode, setEngineMode] = useState<'rules' | 'agent'>(() => (localStorage.getItem('ec:engineMode') === 'agent' ? 'agent' : 'rules'));
+  const [walkOpen, setWalkOpen] = useState(false);
   const streamRef = useRef<StreamHandle | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
+  const effectiveMode: 'rules' | 'agent' = engineMode === 'agent' && llmAvailable ? 'agent' : 'rules';
+
+  useEffect(() => {
+    localStorage.setItem('ec:engineMode', engineMode);
+  }, [engineMode]);
 
   const showToast = useCallback((t: string) => {
     setToast(t);
@@ -96,18 +106,18 @@ export default function Workbench({
         setDetail(d);
         setAnalysis(d.analysis);
         setUptoSeq(d.stats.msgs);
-        runStream(d.id, 'rules', d.stats.msgs);
+        runStream(d.id, effectiveMode, d.stats.msgs);
       })
       .catch((e) => showToast(`会话加载失败：${e.message}`));
     return () => {
       alive = false;
       streamRef.current?.close();
     };
-  }, [selectedId, runStream, showToast]);
+  }, [selectedId, runStream, showToast, effectiveMode]);
 
   const changeUpto = (v: number) => {
     setUptoSeq(v);
-    if (detail) runStream(detail.id, 'rules', v);
+    if (detail) runStream(detail.id, effectiveMode, v);
   };
 
   const execute = async (code: string) => {
@@ -144,7 +154,7 @@ export default function Workbench({
       setDetail(d);
       setAnalysis(d.analysis);
       setUptoSeq(d.stats.msgs);
-      runStream(d.id, 'rules', d.stats.msgs);
+      runStream(d.id, effectiveMode, d.stats.msgs);
       showToast(
         res.ended
           ? '已发送 · 会话已闭环收尾，买家无需继续回复'
@@ -161,8 +171,85 @@ export default function Workbench({
     }
   };
 
+  const rerun = () => {
+    if (detail) runStream(detail.id, effectiveMode, uptoSeq);
+  };
+
+  // 一键重置：仅清空真实演示会话的运行时动作/消费者回执/人工发送对话层，不触碰赛题数据
+  const resetDemo = async () => {
+    if (!detail) return;
+    if (detail.id.startsWith('TRY')) {
+      showToast('试跑会话请直接在列表删除后重建（避免混入历史出演消息）');
+      return;
+    }
+    if (!window.confirm('重置当前会话的演示状态？将清空已执行动作、消费者端回执与人工发送的对话；赛题 138 条 MOCK 数据不受影响。')) return;
+    try {
+      await resetSession(detail.id);
+      const d = await getSession(detail.id);
+      setDetail(d);
+      setAnalysis(d.analysis);
+      setUptoSeq(d.stats.msgs);
+      setAdopted('');
+      runStream(d.id, effectiveMode, d.stats.msgs);
+      showToast('演示状态已重置（动作 / 回执 / 人工对话层已清空）');
+    } catch (e) {
+      showToast(`重置失败：${(e as Error).message}`);
+    }
+  };
+
   return (
-    <div className="grid h-full grid-cols-[272px_minmax(0,1fr)_404px]">
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-1.5 text-[10px] text-slate-500">
+        <span className="font-medium text-slate-600">演示控制</span>
+        <span className="text-slate-400">引擎</span>
+        <div className="flex rounded-md bg-slate-100 p-0.5">
+          <button
+            onClick={() => setEngineMode('agent')}
+            disabled={!llmAvailable}
+            title={llmAvailable ? '切到 Agent 后自动重跑当前会话' : '未配置 DASHSCOPE_API_KEY，仅可使用规则引擎'}
+            className={`rounded px-2 py-0.5 text-[10px] transition ${
+              effectiveMode === 'agent' ? 'bg-white font-medium text-violet-600 shadow-sm' : 'text-slate-500'
+            } disabled:opacity-40`}
+          >
+            Agent
+          </button>
+          <button
+            onClick={() => setEngineMode('rules')}
+            className={`rounded px-2 py-0.5 text-[10px] transition ${
+              effectiveMode === 'rules' ? 'bg-white font-medium text-sky-600 shadow-sm' : 'text-slate-500'
+            }`}
+          >
+            规则
+          </button>
+        </div>
+        <button
+          onClick={rerun}
+          disabled={!detail || !!running}
+          className="rounded border border-slate-200 px-2 py-0.5 text-[10px] text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+        >
+          重跑当前
+        </button>
+        <button
+          onClick={resetDemo}
+          disabled={!detail || !!running}
+          className="rounded border border-slate-200 px-2 py-0.5 text-[10px] text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+        >
+          重置演示状态
+        </button>
+        <button
+          onClick={() => setWalkOpen(true)}
+          className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700 transition hover:bg-emerald-100"
+        >
+          演示脚本
+        </button>
+        <span className="ml-auto hidden items-center gap-2 text-slate-400 md:flex">
+          <span>当前运行：{effectiveMode === 'agent' ? 'Agent（通义千问）' : '规则引擎'}</span>
+          <span className="h-2.5 w-px bg-slate-200" />
+          <span>只演不做 · 动作需人工执行</span>
+        </span>
+      </div>
+
+      <div className="grid min-h-0 flex-1 grid-cols-[272px_minmax(0,1fr)_404px]">
       <aside className="min-h-0 border-r border-slate-200 bg-white">
         <SessionList sessions={sessions} selectedId={selectedId} onSelect={onSelect} onTry={onTry} onDeleteTry={onDeleteTry} onClearTry={onClearTry} />
       </aside>
@@ -208,6 +295,7 @@ export default function Workbench({
           </div>
         )}
       </aside>
+      </div>
 
       {toast && (
         <div className="animate-card-in fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900/92 px-4 py-2 text-[12px] text-white shadow-lg">
@@ -230,6 +318,21 @@ export default function Workbench({
         >
           导出演示报告
         </button>
+      )}
+
+      {walkOpen && (
+        <WalkthroughModal
+          sessions={sessions}
+          onClose={() => setWalkOpen(false)}
+          onOpen={(id) => {
+            setWalkOpen(false);
+            onSelect(id);
+          }}
+          onOpenConsumer={() => {
+            setWalkOpen(false);
+            onOpenConsumer();
+          }}
+        />
       )}
     </div>
   );

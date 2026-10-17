@@ -30,10 +30,13 @@ if (process.argv.includes('--all')) {
   const ins = insights();
   console.log('\n════════ 全量洞察 ════════');
   console.log('风险分布:', JSON.stringify(ins.riskCount));
-  console.log('一致率  :', JSON.stringify(Object.fromEntries(Object.entries(ins.agreement).map(([k, v]) => [k, Math.round(v * 100) + '%']))));
+  const pct = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 100) + '%']));
+  console.log(`留出集 ${ins.split.holdoutCount} 条:`, JSON.stringify(pct(ins.holdoutAgreement)));
+  console.log(`内测集 ${ins.split.devCount} 条:`, JSON.stringify(pct(ins.devAgreement)));
+  console.log('全量  :', JSON.stringify(pct(ins.agreement)));
   console.log('高风险会话:', ins.riskSessions.red.slice(0, 6).map((p) => `${p.id}:${p.sceneKey}(${p.peak})`).join(' | '));
-  const missed = ins.perSession.filter((p) => !p.evalPass).slice(0, 10);
-  console.log('未对齐 Top10:', missed.map((p) => `${p.id}(scene:${p.sceneOk ? '✓' : '✗'},level:${p.levelOk ? '✓' : '✗'},${p.sceneKey})`).join(' '));
+  const missed = ins.perSession.filter((p) => !p.strictPass).slice(0, 10);
+  console.log('严格未对齐 Top10:', missed.map((p) => `${p.id}(${p.sceneKey} ↔ ${p.gtScene})`).join(' | '));
   console.log('会话总数:', getAllSessions().length);
 }
 

@@ -149,7 +149,7 @@ export default function App() {
                   : `演示数据模式（未接入 MySQL：${overview.storage.reason || '未配置'}）——试跑记录重启后清空`
               }
             >
-              存储：{overview.storage.mode === 'mysql' ? `MySQL · ${overview.storage.database}` : '演示数据'}
+              存储：{overview.storage.mode === 'mysql' ? `MySQL · ${overview.storage.database}` : '演示数据 · 重启清空'}
             </span>
           )}
           <span
@@ -176,6 +176,12 @@ export default function App() {
         </div>
       )}
 
+      {overview?.storage?.mode === 'memory' && (
+        <div className="shrink-0 border-b border-amber-100 bg-amber-50 px-4 py-1 text-[10px] text-amber-700">
+          演示实例：试跑记录仅保存在内存，服务重启 / 重新部署后清空；赛题 138 条 MOCK 数据为只读，不受影响。
+        </div>
+      )}
+
       {/* 主视图 */}
       <div className="min-h-0 flex-1">
         <Suspense fallback={<ViewFallback />}>
@@ -188,6 +194,7 @@ export default function App() {
               onTry={() => setTryOpen(true)}
               onDeleteTry={onDeleteTry}
               onClearTry={onClearTry}
+              onOpenConsumer={() => setTab('consumer')}
             />
           )}
           {tab === 'consumer' && <ConsumerView sessionId={selectedId} />}

@@ -573,6 +573,10 @@ export function extraMessages(sessionId) {
   return chatExtras.get(sessionId) || [];
 }
 
+export function clearExtraMessages(sessionId) {
+  chatExtras.delete(sessionId);
+}
+
 export function trySessionList() {
   return [...trySessions.values()].reverse();
 }

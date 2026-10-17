@@ -1,5 +1,7 @@
 // 阿里云百炼 DashScope OpenAI 兼容客户端（零依赖 fetch 实现）
 // 文本 qwen-plus / 多模态 qwen-vl-max，均支持无 Key 降级
+import { recordLlmCall } from './telemetry.js';
+
 const BASE_URL = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 export function llmAvailable() {
@@ -44,66 +46,86 @@ export function parseJsonLoose(text) {
   throw new Error(`JSON parse failed: ${t.slice(0, 120)}`);
 }
 
-export async function chatJson({ system, user, model = textModel(), temperature = 0.3, maxTokens = 1200, timeoutMs = 60000 }) {
+export async function chatJson({ system, user, model = textModel(), temperature = 0.3, maxTokens = 1200, timeoutMs = 60000, kind = 'text' }) {
   const messages = [
     { role: 'system', content: system },
     { role: 'user', content: user },
   ];
   const base = { model, messages, temperature, max_tokens: maxTokens };
-  let data;
+  const started = Date.now();
+  let usage = null;
+  let ok = false;
   try {
-    data = await request({ ...base, response_format: { type: 'json_object' } }, { timeoutMs });
-  } catch (e) {
-    if (String(e.message).includes('NO_API_KEY')) throw e;
-    data = await request(base, { timeoutMs });
-  }
-  const content = data.choices?.[0]?.message?.content || '';
-  return { json: parseJsonLoose(content), usage: data.usage || null };
-}
-
-export async function chatStream({ system, user, model = textModel(), temperature = 0.6, maxTokens = 800, timeoutMs = 90000, onDelta }) {
-  const res = await request(
-    {
-      model,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      temperature,
-      max_tokens: maxTokens,
-      stream: true,
-    },
-    { timeoutMs, stream: true },
-  );
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder('utf-8');
-  let buffer = '';
-  let full = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      const s = line.trim();
-      if (!s.startsWith('data:')) continue;
-      const payload = s.slice(5).trim();
-      if (!payload || payload === '[DONE]') continue;
-      try {
-        const j = JSON.parse(payload);
-        const delta = j.choices?.[0]?.delta?.content || '';
-        if (delta) {
-          full += delta;
-          onDelta?.(delta, full);
-        }
-      } catch { /* 忽略半包 */ }
+    let data;
+    try {
+      data = await request({ ...base, response_format: { type: 'json_object' } }, { timeoutMs });
+    } catch (e) {
+      if (String(e.message).includes('NO_API_KEY')) throw e;
+      data = await request(base, { timeoutMs });
     }
+    usage = data.usage || null;
+    const content = data.choices?.[0]?.message?.content || '';
+    const json = parseJsonLoose(content);
+    ok = true;
+    return { json, usage, meta: { model, kind, ms: Date.now() - started } };
+  } finally {
+    recordLlmCall({ kind, model, ms: Date.now() - started, usage, ok });
   }
-  return full;
 }
 
-export async function visionJson({ prompt, imageDataUrl, model = vlModel(), timeoutMs = 60000 }) {
+export async function chatStream({ system, user, model = textModel(), temperature = 0.6, maxTokens = 800, timeoutMs = 90000, onDelta, kind = 'text' }) {
+  const started = Date.now();
+  let usage = null;
+  let ok = false;
+  try {
+    const res = await request(
+      {
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        temperature,
+        max_tokens: maxTokens,
+        stream: true,
+        stream_options: { include_usage: true },
+      },
+      { timeoutMs, stream: true },
+    );
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let full = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const s = line.trim();
+        if (!s.startsWith('data:')) continue;
+        const payload = s.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const j = JSON.parse(payload);
+          if (j.usage) usage = j.usage;
+          const delta = j.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            full += delta;
+            onDelta?.(delta, full);
+          }
+        } catch { /* 忽略半包 */ }
+      }
+    }
+    ok = true;
+    return { text: full, usage, meta: { model, kind, ms: Date.now() - started } };
+  } finally {
+    recordLlmCall({ kind, model, ms: Date.now() - started, usage, ok });
+  }
+}
+
+export async function visionJson({ prompt, imageDataUrl, model = vlModel(), timeoutMs = 60000, kind = 'vision' }) {
   const messages = [
     {
       role: 'user',
@@ -113,13 +135,23 @@ export async function visionJson({ prompt, imageDataUrl, model = vlModel(), time
       ],
     },
   ];
-  let data;
+  const started = Date.now();
+  let usage = null;
+  let ok = false;
   try {
-    data = await request({ model, messages, temperature: 0.2, max_tokens: 600, response_format: { type: 'json_object' } }, { timeoutMs });
-  } catch (e) {
-    if (String(e.message).includes('NO_API_KEY')) throw e;
-    data = await request({ model, messages, temperature: 0.2, max_tokens: 600 }, { timeoutMs });
+    let data;
+    try {
+      data = await request({ model, messages, temperature: 0.2, max_tokens: 600, response_format: { type: 'json_object' } }, { timeoutMs });
+    } catch (e) {
+      if (String(e.message).includes('NO_API_KEY')) throw e;
+      data = await request({ model, messages, temperature: 0.2, max_tokens: 600 }, { timeoutMs });
+    }
+    usage = data.usage || null;
+    const content = data.choices?.[0]?.message?.content || '';
+    const json = parseJsonLoose(content);
+    ok = true;
+    return { json, usage, meta: { model, kind, ms: Date.now() - started } };
+  } finally {
+    recordLlmCall({ kind, model, ms: Date.now() - started, usage, ok });
   }
-  const content = data.choices?.[0]?.message?.content || '';
-  return { json: parseJsonLoose(content), usage: data.usage || null };
 }

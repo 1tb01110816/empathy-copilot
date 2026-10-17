@@ -5,21 +5,26 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     name: Typecheck · Test · Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - name: Install dependencies
         run: npm ci
       - name: Typecheck (web)
         run: npm run typecheck -w web
-      - name: Unit tests (server)
+      - name: Unit + invariant tests (server)
         run: npm test -w server
       - name: Build (web)
         run: npm run build
