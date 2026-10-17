@@ -7,28 +7,35 @@ import { runPipeline } from '../pipeline.js';
 import { executeAction, runtimeActions, runtimeMessages, ACTION_DEFS, clearRuntime } from '../actions.js';
 import { llmAvailable, textModel, vlModel } from '../llm/qwen.js';
 import { dbStatus } from '../db.js';
+import { accessEnabled, createRateLimiter } from '../security.js';
 
 const api = Router();
 
-// —— 写接口轻量限流：站点已公网可访问，防止被脚本批量刷写试跑/动作记录（内存计数，单实例演示足够，不影响正常操作）——
-const writeBuckets = new Map(); // ip -> { count, ts }
-api.use((req, res, next) => {
-  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
-  const ip = String(req.headers['x-forwarded-for']?.split(',')[0] || '').trim() || req.socket.remoteAddress || 'unknown';
-  const now = Date.now();
-  const b = writeBuckets.get(ip);
-  if (!b || now - b.ts > 60000) {
-    writeBuckets.set(ip, { count: 1, ts: now });
-  } else if (b.count >= 60) {
-    return res.status(429).json({ error: '操作过于频繁，请稍后再试' });
-  } else {
-    b.count += 1;
-  }
-  next();
+// 限流：全接口兜底 + 写接口更严；健康检查与预检不受限（内存计数，单实例演示足够）
+const skipHealth = (req) => req.path === '/health' || req.method === 'OPTIONS';
+const apiLimiter = createRateLimiter({
+  max: Number(process.env.API_RATE_MAX || 240),
+  windowMs: Number(process.env.API_RATE_WINDOW_MS || 60_000),
+  skip: skipHealth,
 });
+const writeLimiter = createRateLimiter({
+  max: Number(process.env.WRITE_RATE_MAX || 60),
+  message: '操作过于频繁，请稍后再试',
+  skip: (req) => skipHealth(req) || req.method === 'GET' || req.method === 'HEAD',
+});
+const streamLimiter = createRateLimiter({
+  max: Number(process.env.STREAM_RATE_MAX || 20),
+  message: '分析请求过于频繁，请稍后再试',
+});
+const tryLimiter = createRateLimiter({
+  max: Number(process.env.TRY_RATE_MAX || 10),
+  message: '试跑创建过于频繁，请稍后再试',
+});
+api.use(apiLimiter);
+api.use(writeLimiter);
 
 api.get('/health', (req, res) => {
-  res.json({ ok: true, llm: llmAvailable(), textModel: textModel(), vlModel: vlModel(), storage: dbStatus() });
+  res.json({ ok: true, auth: accessEnabled(), llm: llmAvailable(), textModel: textModel(), vlModel: vlModel(), storage: dbStatus() });
 });
 
 api.get('/overview', (req, res) => {
@@ -99,7 +106,7 @@ api.get('/refs/tickets', (req, res) => {
 
 // 试跑：现场输入买家问题（文本 + 可选图片 + 可选关联订单/工单 + 可选买家画像）→ 临时会话，走同一引擎与 Agent 工作流
 // demo=true：自动出演「客服共情回复 + 买家收到回复后的反应」（仅追加演示对话，不执行任何动作）
-api.post('/try', async (req, res) => {
+api.post('/try', tryLimiter, async (req, res) => {
   try {
     const { text, imageDataUrl, demo, orderId, ticketId, buyerType } = req.body || {};
     const t = String(text || '').trim();
@@ -156,7 +163,7 @@ api.get('/sessions/:id', (req, res) => {
 });
 
 // SSE：Agent 工作流事件流（步骤 / 中间结果 / 流式话术 / 最终分析）
-api.get('/sessions/:id/stream', async (req, res) => {
+api.get('/sessions/:id/stream', streamLimiter, async (req, res) => {
   const session = getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'session not found' });
   const uptoSeq = req.query.upto ? Number(req.query.upto) : Infinity;

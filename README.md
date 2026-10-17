@@ -195,12 +195,14 @@ empathy-copilot/
 - GitHub 仓库：https://github.com/1tb01110816/empathy-copilot（public）
 - 部署方式：Railway 免费 Trial 连接 GitHub 仓库，**main 分支开启自动部署（push 即触发）**；Railpack 自动构建 `npm install; npm run build`，启动命令 `npm run start`，监听端口由平台自动注入
 - 本地推送 `git push origin main` 后无需任何平台操作，约 1-3 分钟自动构建上线
+- **访问口令（建议开启）**：在 Railway Variables 设置 `APP_ACCESS_CODE`（用户名默认 `demo`，可用 `APP_AUTH_USER` 覆盖）。设置后全站启用 Basic Auth，浏览器首次访问会弹出口令框；`/api/health` 保持免鉴权，供平台/监控探活。留空则不启用，本地开发不受影响。
+- **限流与体积上限**：全 API 每 IP 240 次/分钟，写接口 60 次/分钟，Agent 流式分析 20 次/分钟，试跑创建 10 次/分钟；JSON 请求体上限 4MB，试跑图片上限 3MB。超限返回 429/413（JSON 错误体），不会影响正常演示操作。
 
 ## 十、工程化与体验增强（P0–P3）
 
 | 优先级 | 能力 | 说明 |
 | --- | --- | --- |
-| P0 | 写接口限流 | 站点公网可访问后，`POST/DELETE` 接口按 IP 每分钟 60 次限流（内存计数，单实例演示足够，不影响正常操作） |
+| P0 | 访问口令 + 分级限流 + 体积上限 | 设置 `APP_ACCESS_CODE` 后全站 Basic Auth（`/api/health` 免鉴权）；全 API 240 次/分钟、写接口 60 次/分钟、流式分析 20 次/分钟、试跑 10 次/分钟；JSON 4MB、图片 3MB，超限返回 429/413 |
 | P1 | 试跑增强 | 可选关联订单/工单（融合卡补齐、风险联动）+ 买家画像分型出演（急躁/犹豫/理性）+ 话术「接情绪」前缀（情绪较强时差异化开场） |
 | P1 | 通义千问 Agent 模式 | 配置 `DASHSCOPE_API_KEY` 后自动启用（含买家 LLM 出演与情绪复评）；未配置全链路规则引擎兜底，演示不阻塞 |
 | P1 | MySQL 持久化 | 配置 `DB_HOST` 等后试跑记录重启不丢；未配置自动降级内存模式 |
