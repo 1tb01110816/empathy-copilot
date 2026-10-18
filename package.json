@@ -14,9 +14,12 @@
     "build": "npm --workspace web run build",
     "start": "npm --workspace server run start",
     "test": "npm --workspace server run test",
-    "typecheck": "npm --workspace web run typecheck"
+    "typecheck": "npm --workspace web run typecheck",
+    "pretest:e2e": "npm run build",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "concurrently": "^9.1.2"
   },
   "engines": {

@@ -3,3 +3,5 @@ dist/
 server/.env
 *.log
 .DS_Store
+playwright-report/
+test-results/

@@ -42,6 +42,14 @@ npm run dev
 
 打开 http://localhost:5173 即进入工作台。生产构建：`npm run build && npm start`（由 server 托管 `web/dist`）。
 
+浏览器 E2E 冒烟测试（可选，首次需安装 Chromium）：
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+# 自动构建前端并在 8790 端口启动独立服务（固定测试口令，关闭 DB/LLM），不影响本地 8787/5173
+```
+
 ## 三、演示脚本（评委走查路线，约 5 分钟）
 
 ### 演示线 1：S00010 面膜过敏泛红（红 · 健康风险）
@@ -230,6 +238,6 @@ empathy-copilot/
 | P1 | 演示可控性 | 顶部「演示控制」：Agent / 规则引擎切换（持久化）、重跑当前、重置演示状态、演示走查脚本（四场景看点 + 一键跳转）；重置只清运行时层，不触碰赛题数据 |
 | P1 | MySQL 持久化 | 配置 `DB_HOST` 等后试跑记录重启不丢；未配置自动降级内存模式 |
 | P2 | 业务价值指标看板 | 洞察页 8 项代理指标（首响/会话时长/买家发言/复访/高风险/情绪缓和/正向收尾），全部由时间戳、轮次、情绪与画像确定性推导，可复算且不伪造 CSAT |
-| P2 | 工程化护栏 | 45 项 `node:test`（引擎/合规/留出集 + 138 口径、只演不做、TRY 隔离、入参校验、登录 / Cookie 会话 / CSRF Origin 不变量）；GitHub Actions 在每次 push/PR 自动跑 `typecheck + test + build`；非法 ID/动作/payload/upto/试跑输入在入口统一 400 |
+| P2 | 工程化护栏 | 45 项 `node:test`（引擎/合规/留出集 + 138 口径、只演不做、TRY 隔离、入参校验、登录 / Cookie 会话 / CSRF Origin 不变量）+ 6 条 Playwright E2E 冒烟（登录门禁/邀请链接/工作台 138 与对账/洞察页口径/会话失效/CSRF）；GitHub Actions 在每次 push/PR 自动跑 `typecheck + node:test + build + E2E`；非法 ID/动作/payload/upto/试跑输入在入口统一 400 |
 | P2 | 导出演示报告 | 工作台右上角一键导出当前会话完整演示链路（HTML，可直接打开/打印 PDF） |
 | P3 | 深色模式 | 顶栏切换深色 / 浅色（框架级适配，localStorage 记忆） |
