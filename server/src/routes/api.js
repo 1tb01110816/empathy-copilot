@@ -3,6 +3,8 @@ import { getSession, sessionList, DEMO_SESSIONS, datasetStats, createTrySession,
 import { ruleAnalyze } from '../engine/analyze.js';
 import { demoDialogue, buyerNextReaction, BUYER_TYPES } from '../engine/simulate.js';
 import { insights } from '../engine/insights.js';
+import { buildRiskBoard } from '../engine/riskBoard.js';
+import { loadRiskStates, saveRiskState, applyRiskStates, RISK_STATUSES } from '../riskState.js';
 import { runPipeline } from '../pipeline.js';
 import { executeAction, runtimeActions, runtimeMessages, ACTION_DEFS, clearRuntime } from '../actions.js';
 import { llmAvailable, textModel, vlModel } from '../llm/qwen.js';
@@ -313,6 +315,50 @@ api.post('/sessions/:id/reset', async (req, res) => {
 
 api.get('/insights', (req, res) => {
   res.json(insights());
+});
+
+// 跨会话风险预警看板：只读聚合 138 条赛题会话 + 独立状态跟踪（不改动原始数据）
+api.get('/risk-board', async (req, res) => {
+  try {
+    const board = buildRiskBoard();
+    const states = await loadRiskStates();
+    res.json(applyRiskStates(board, states));
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+const RISK_STATUS_SET = new Set(RISK_STATUSES);
+const RISK_MAX = { owner: 24, note: 200 };
+
+function validateRiskPatch(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw badRequest('状态参数必须是对象');
+  const patch = {};
+  if ('status' in body) {
+    if (!RISK_STATUS_SET.has(body.status)) throw badRequest('状态必须是 pending / following / closed');
+    patch.status = body.status;
+  }
+  for (const field of ['owner', 'note']) {
+    if (!(field in body)) continue;
+    if (typeof body[field] !== 'string') throw badRequest(`${field} 必须是字符串`);
+    const value = body[field].trim();
+    if (value.length > RISK_MAX[field]) throw badRequest(`${field} 过长（最多 ${RISK_MAX[field]} 字）`);
+    patch[field] = value;
+  }
+  if (!Object.keys(patch).length) throw badRequest('至少提交一个状态字段');
+  return patch;
+}
+
+api.patch('/risk-board/:id', async (req, res) => {
+  try {
+    const alert = buildRiskBoard().alerts.find((a) => a.id === req.params.id);
+    if (!alert) return res.status(404).json({ error: 'risk alert not found' });
+    const patch = validateRiskPatch(req.body || {});
+    const state = await saveRiskState(alert.id, patch);
+    res.json({ ok: true, state });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: String(e.message || e) });
+  }
 });
 
 // 试跑记录删除（单条）：仅影响 TRY 前缀试跑会话与其运行时记录，不触碰赛题 138 条数据

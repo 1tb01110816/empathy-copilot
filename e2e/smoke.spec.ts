@@ -45,6 +45,27 @@ test('洞察页：留出集 92.9% 与 138/998 口径', async ({ page }) => {
   await expect(page.getByText('998', { exact: true })).toBeVisible();
 });
 
+test('风险看板：26 条跨会话预警、状态跟踪与会话跳转', async ({ page }) => {
+  await login(page);
+  await page.getByRole('button', { name: '风险看板' }).click();
+  await expect(page.getByRole('heading', { name: '跨会话风险预警' })).toBeVisible();
+  await expect(page.getByText('26 / 138')).toBeVisible();
+
+  const card = page.getByTestId('risk-alert-S00024');
+  await expect(card).toBeVisible();
+  await expect(card.getByText('舆情投诉').first()).toBeVisible();
+  await card.getByRole('button', { name: '展开处理' }).click();
+
+  const pill = card.getByTestId('risk-status-S00024');
+  const current = (await pill.textContent())?.trim();
+  const target = current === '待处理' ? '跟进中' : '待处理';
+  await card.getByRole('button', { name: `将 S00024 标记为${target}` }).click();
+  await expect(pill).toHaveText(target);
+
+  await card.getByRole('button', { name: '打开会话 S00024' }).click();
+  await expect(page.getByText('客户接待 · 会话列表')).toBeVisible();
+});
+
 test('会话失效：清除 Cookie 后自动回登录页并提示', async ({ page, context }) => {
   await login(page);
   await context.clearCookies();

@@ -177,4 +177,14 @@ export async function ensureTryTables() {
       KEY idx_runtime_msg_session (session_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   );
+  // 风险看板状态跟踪：独立表，不参与赛题 138 条数据与对账口径
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS risk_alert_state (
+      alert_id VARCHAR(40) PRIMARY KEY,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      owner VARCHAR(64) NOT NULL DEFAULT '',
+      note VARCHAR(500) NOT NULL DEFAULT '',
+      updated_at VARCHAR(32) NOT NULL DEFAULT ''
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  );
 }

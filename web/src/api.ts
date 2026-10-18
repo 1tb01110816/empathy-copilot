@@ -1,4 +1,4 @@
-import type { Insights, Overview, SessionBrief, SessionDetail, StreamEvent, ActionRecord, ChatMessage } from './types';
+import type { Insights, Overview, SessionBrief, SessionDetail, StreamEvent, ActionRecord, ChatMessage, RiskBoard, RiskAlertStatus } from './types';
 
 export const AUTH_EXPIRED_EVENT = 'ec:auth-expired';
 
@@ -18,6 +18,21 @@ export const getOverview = () => j<Overview>('/api/overview');
 export const getSessions = () => j<{ sessions: SessionBrief[]; total: number }>('/api/sessions');
 export const getSession = (id: string) => j<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`);
 export const getInsights = () => j<Insights>('/api/insights');
+
+// 跨会话风险看板：只读聚合 + 独立状态跟踪
+export const getRiskBoard = () => j<RiskBoard>('/api/risk-board');
+export const patchRiskAlert = (
+  id: string,
+  patch: { status?: RiskAlertStatus; owner?: string; note?: string },
+) =>
+  j<{ ok: boolean; state: { status: RiskAlertStatus; owner: string; note: string; updatedAt: string } }>(
+    `/api/risk-board/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    },
+  );
 
 export const getAuthSession = () => j<{ enabled: boolean; authenticated: boolean }>('/api/auth/session');
 export const login = (code: string) =>

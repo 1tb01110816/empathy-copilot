@@ -335,6 +335,64 @@ export interface Insights {
   perSession: InsightSession[];
 }
 
+export type RiskAlertStatus = 'pending' | 'following' | 'closed';
+export type RiskAlertSeverity = 'urgent' | 'high' | 'medium';
+export type RiskSignalKey = 'complaint' | 'repeatVisit' | 'emotion' | 'repeatRefund';
+
+export interface RiskSignalEvidence {
+  time: string;
+  text: string;
+}
+
+export interface RiskAlertSignal {
+  key: RiskSignalKey;
+  label: string;
+  tone: string;
+  desc: string;
+  detail: string;
+  evidence: RiskSignalEvidence[];
+}
+
+export interface RiskAlert {
+  id: string;
+  sessionId: string;
+  buyer: string;
+  sceneKey: string;
+  startTime: string;
+  riskLevel: RiskLevel;
+  severity: RiskAlertSeverity;
+  peak: number;
+  current: number;
+  visits: number;
+  priorTickets: number;
+  refundTickets: number;
+  signals: RiskAlertSignal[];
+  suggestedActions: Array<{ code: string; label: string }>;
+  status: RiskAlertStatus;
+  owner: string;
+  note: string;
+  updatedAt: string;
+}
+
+export interface RiskBoard {
+  generatedAt: string;
+  stats: {
+    sessions: number;
+    total: number;
+    urgent: number;
+    high: number;
+    medium: number;
+    complaints: number;
+    repeatVisits: number;
+    emotions: number;
+    repeatRefunds: number;
+    byStatus: Record<RiskAlertStatus, number>;
+  };
+  signals: Array<{ key: RiskSignalKey; label: string; tone: string; desc: string }>;
+  alerts: RiskAlert[];
+}
+
+
 export type StreamEvent =
   | { type: 'step'; id: string; label: string; status: TraceStep['status']; detail?: string; ms?: number }
   | { type: 'partial'; key: string; value: unknown }

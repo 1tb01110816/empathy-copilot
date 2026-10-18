@@ -7,13 +7,14 @@ import LoginView from './components/LoginView';
 const Workbench = lazy(() => import('./views/Workbench'));
 const ConsumerView = lazy(() => import('./views/ConsumerView'));
 const InsightsView = lazy(() => import('./views/InsightsView'));
+const RiskBoardView = lazy(() => import('./views/RiskBoardView'));
 const TryModal = lazy(() => import('./components/TryModal'));
 
 function ViewFallback() {
   return <div className="flex h-full items-center justify-center text-[12px] text-slate-400">加载中…</div>;
 }
 
-type Tab = 'workbench' | 'consumer' | 'insights';
+type Tab = 'workbench' | 'consumer' | 'risk' | 'insights';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('workbench');
@@ -217,6 +218,9 @@ export default function App() {
           <TabBtn active={tab === 'consumer'} onClick={() => setTab('consumer')}>
             消费者端
           </TabBtn>
+          <TabBtn active={tab === 'risk'} onClick={() => setTab('risk')}>
+            风险看板
+          </TabBtn>
           <TabBtn active={tab === 'insights'} onClick={() => setTab('insights')}>
             数据洞察
           </TabBtn>
@@ -306,6 +310,7 @@ export default function App() {
             />
           )}
           {tab === 'consumer' && <ConsumerView sessionId={selectedId} />}
+          {tab === 'risk' && <RiskBoardView onOpen={openSession} />}
           {tab === 'insights' && <InsightsView onOpen={openSession} />}
         </Suspense>
       </div>
