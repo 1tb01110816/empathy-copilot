@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { scoreText, stateOf, buildEmotionCurve, W } from '../src/engine/emotion.js';
-import { templateReply, stageReply, STAGE_LABELS, REPLY_TEMPLATES } from '../src/engine/analyze.js';
+import { templateReply, stageReply, dialogueStage, STAGE_LABELS, REPLY_TEMPLATES } from '../src/engine/analyze.js';
 import { templateReaction, templateFollowup, BUYER_TYPES } from '../src/engine/simulate.js';
 
 test('情绪打分：强情绪词显著抬分', () => {
@@ -68,6 +68,21 @@ test('话术阶段：开场/跟进/收尾标签', () => {
   assert.equal(STAGE_LABELS.followup, '跟进推进');
   assert.equal(STAGE_LABELS.closing, '收尾安抚');
   assert.ok(stageReply('不良反应/泛红刺痒', 'followup').includes('跟进'));
+});
+
+test('话术阶段：演示自动出演不推进，人工发送才推进', () => {
+  const demo = [
+    { isBuyer: true, text: '买家首问' },
+    { isBuyer: false, simulated: true, text: '演示客服开场' },
+    { isBuyer: true, simulated: true, text: '买家缓和' },
+    { isBuyer: false, simulated: true, text: '演示客服跟进' },
+    { isBuyer: true, simulated: true, text: '买家收尾' },
+  ];
+  assert.equal(dialogueStage(demo), 'opening', '演示出演后仍给开场话术供人工采纳');
+  const one = [...demo, { isBuyer: false, live: true, text: '人工第一条' }, { isBuyer: true, text: '买家回应' }];
+  assert.equal(dialogueStage(one), 'followup');
+  const two = [...one, { isBuyer: false, live: true, text: '人工第二条' }, { isBuyer: true, text: '买家确认' }];
+  assert.equal(dialogueStage(two), 'closing');
 });
 
 test('买家画像：画像模板优先于场景模板', () => {

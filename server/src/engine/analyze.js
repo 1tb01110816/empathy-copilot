@@ -57,16 +57,13 @@ export function templateReply(sceneKey, ctx = {}) {
 }
 
 // —— 话术随对话轮次演进：开场共情 → 跟进推进 → 收尾安抚 ——
-// 判定：未人工发送=开场；发送 1 轮后买家有新反馈=跟进；买家已收尾（演示闭环）或多轮后=收尾安抚
+// 仅按人工发送轮次推进；演示自动出演的消息不计入阶段，首条话术始终可人工采纳发送
 export const STAGE_LABELS = { opening: '开场共情', followup: '跟进推进', closing: '收尾安抚' };
 
 export function dialogueStage(messages) {
   const liveTurns = messages.filter((m) => m.live && !m.isBuyer).length;
   if (liveTurns >= 2) return 'closing';
   if (liveTurns >= 1) return 'followup';
-  const last = messages[messages.length - 1];
-  // 演示自动出演已走到买家收尾（其后无人工发送）→ 会话视为闭环
-  if (last?.isBuyer && last.simulated) return 'closing';
   return 'opening';
 }
 
