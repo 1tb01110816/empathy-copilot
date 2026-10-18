@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import api from './routes/api.js';
 import auth from './routes/auth.js';
-import { accessGuard, securityHeaders } from './security.js';
+import { accessGuard, csrfGuard, securityHeaders } from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..', '..');
@@ -21,7 +21,7 @@ app.use(securityHeaders);
 app.use(express.json({ limit: '4mb' }));
 // 登录页、邀请链接与前端静态资源公开；业务 API 统一由 accessGuard 保护
 app.use(auth);
-app.use('/api', accessGuard, api);
+app.use('/api', accessGuard, csrfGuard, api);
 
 // 生产模式：托管前端构建产物
 const dist = path.join(ROOT, 'web', 'dist');

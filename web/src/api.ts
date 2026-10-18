@@ -1,8 +1,16 @@
 import type { Insights, Overview, SessionBrief, SessionDetail, StreamEvent, ActionRecord, ChatMessage } from './types';
 
+export const AUTH_EXPIRED_EVENT = 'ec:auth-expired';
+
 async function j<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
-  if (!r.ok) throw new Error(`${r.status} ${await r.text().catch(() => '')}`.slice(0, 160));
+  if (!r.ok) {
+    // 会话过期/口令轮换：通知上层回到登录页；登录接口自身的 401 交由表单提示
+    if (r.status === 401 && !url.startsWith('/api/auth/')) {
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    }
+    throw new Error(`${r.status} ${await r.text().catch(() => '')}`.slice(0, 160));
+  }
   return r.json() as Promise<T>;
 }
 
@@ -102,6 +110,14 @@ export function streamSession(
       /* 忽略非 JSON 数据 */
     }
   };
-  es.onerror = () => close();
+  es.onerror = () => {
+    close();
+    // EventSource 读不到 401，回查会话：失效则通知上层回登录页，网络抖动则忽略
+    getAuthSession()
+      .then((s) => {
+        if (!s.authenticated) window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+      })
+      .catch(() => {});
+  };
   return { close };
 }

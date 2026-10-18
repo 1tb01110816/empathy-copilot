@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { Overview, SessionBrief } from './types';
-import { getOverview, getSessions, deleteTry, clearTry, getAuthSession, logout } from './api';
+import { getOverview, getSessions, deleteTry, clearTry, getAuthSession, logout, AUTH_EXPIRED_EVENT } from './api';
 import LoginView from './components/LoginView';
 
 // 按 Tab 懒加载视图，减小首屏 bundle
@@ -29,6 +29,11 @@ export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [authEnabled, setAuthEnabled] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
+  const authedRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    authedRef.current = authed;
+  }, [authed]);
 
   // 邀请链接失败/缺失口令时由 /enter 重定向回首页并带 ?auth=…，读取后清理地址栏
   useEffect(() => {
@@ -51,6 +56,45 @@ export default function App() {
     document.documentElement.classList.toggle('dark', dark);
     localStorage.setItem('ec:dark', dark ? '1' : '0');
   }, [dark]);
+
+  // 会话过期（Cookie 到期 / 服务端口令轮换）：清空内存态并回到登录页
+  const expireSession = useCallback(() => {
+    setAuthNotice('登录状态已失效，请重新登录');
+    setOverview(null);
+    setSessions([]);
+    setTryOpen(false);
+    setAuthed(false);
+  }, []);
+
+  useEffect(() => {
+    const onExpire = () => {
+      if (authedRef.current !== true) return;
+      expireSession();
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpire);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpire);
+  }, [expireSession]);
+
+  // 标签页重新可见/窗口聚焦时复验会话：长时间挂后台过期后无需手动刷新
+  useEffect(() => {
+    if (!authed) return;
+    let alive = true;
+    const check = () => {
+      if (document.visibilityState !== 'visible') return;
+      getAuthSession()
+        .then((s) => {
+          if (alive && !s.authenticated) expireSession();
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      alive = false;
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [authed, expireSession]);
 
   const refreshSessions = useCallback(() => {
     return getSessions()

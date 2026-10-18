@@ -106,6 +106,30 @@ export function accessGuard(req, res, next) {
   return res.status(401).json({ error: '需要访问口令', code: 'AUTH_REQUIRED' });
 }
 
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function sameOrigin(req) {
+  const origin = req.headers?.origin;
+  // 无 Origin 视为非浏览器请求（curl / 服务间调用），口令仍由 accessGuard 校验
+  if (!origin) return true;
+  try {
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '');
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+// Cookie 会自动随请求发送，写接口额外校验 Origin 防跨站伪造；
+// Basic Auth 需显式携带 Authorization，不属于 CSRF 场景，直接放行
+export function csrfGuard(req, res, next) {
+  if (!accessEnabled() || !UNSAFE_METHODS.has(req.method)) return next();
+  if (/^Basic /i.test(String(req.headers?.authorization || ''))) return next();
+  if (sameOrigin(req)) return next();
+  res.set('Cache-Control', 'no-store');
+  return res.status(403).json({ error: '跨站请求被拒绝', code: 'ORIGIN_FORBIDDEN' });
+}
+
 export function securityHeaders(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');

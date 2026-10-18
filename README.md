@@ -215,7 +215,7 @@ empathy-copilot/
 - GitHub 仓库：https://github.com/1tb01110816/empathy-copilot（public）
 - 部署方式：Railway 免费 Trial 连接 GitHub 仓库，**main 分支开启自动部署（push 即触发）**；Railpack 自动构建 `npm install; npm run build`，启动命令 `npm run start`，监听端口由平台自动注入
 - 本地推送 `git push origin main` 后无需任何平台操作，约 1-3 分钟自动构建上线
-- **访问口令（建议开启）**：在 Railway Variables 设置 `APP_ACCESS_CODE`。设置后打开首页会显示品牌登录页，输入口令即可进入（7 天免登录，HttpOnly 签名 Cookie）；也可把 `/enter?code=<口令>` 作为邀请链接直接发给评委，自动登录并跳转到干净地址。Basic Auth（用户名默认 `demo`，可用 `APP_AUTH_USER` 覆盖）继续兼容 curl / 老链接，但不再弹浏览器原生框；`/api/health` 保持免鉴权，供平台/监控探活。登录尝试限 10 次/分钟/IP；更换口令会让所有旧 Cookie 失效（可选 `APP_SESSION_SECRET` 再加一层签名密钥）。留空则不启用，本地开发不受影响。
+- **访问口令（建议开启）**：在 Railway Variables 设置 `APP_ACCESS_CODE`。设置后打开首页会显示品牌登录页，输入口令即可进入（7 天免登录，HttpOnly 签名 Cookie）；也可把 `/enter?code=<口令>` 作为邀请链接直接发给评委，自动登录并跳转到干净地址。Basic Auth（用户名默认 `demo`，可用 `APP_AUTH_USER` 覆盖）继续兼容 curl / 老链接，但不再弹浏览器原生框；`/api/health` 保持免鉴权，供平台/监控探活。登录尝试限 10 次/分钟/IP；更换口令会让所有旧 Cookie 失效（可选 `APP_SESSION_SECRET` 再加一层签名密钥）。**会话失效自动回登录页**：Cookie 过期或口令轮换后，任意接口 401 / SSE 断连复验 / 标签页重新聚焦都会清空本地状态并回到登录页提示重新登录。**CSRF 防护**：Cookie 会话的写请求（POST/PUT/PATCH/DELETE）校验 `Origin` 与当前 Host 一致，跨站请求返回 403（`ORIGIN_FORBIDDEN`）；Basic Auth 与无 Origin 的脚本调用不受影响。留空则不启用，本地开发不受影响。
 - **限流与体积上限**：全 API 每 IP 240 次/分钟，写接口 60 次/分钟，Agent 流式分析 20 次/分钟，试跑创建 10 次/分钟；JSON 请求体上限 4MB，试跑图片上限 3MB。超限返回 429/413（JSON 错误体），不会影响正常演示操作。
 - **线上存储口径**：当前 Railway 实例为**内存模式**——试跑记录仅保存在进程内存，平台重启 / 重新部署即清空；赛题 138 条 MOCK 数据为只读快照，不受影响。需要持久化时按第五节配置 `DB_HOST` 等变量，重启后自动切到 MySQL。工作台顶栏与页面横幅会显式标注该状态。
 
@@ -223,13 +223,13 @@ empathy-copilot/
 
 | 优先级 | 能力 | 说明 |
 | --- | --- | --- |
-| P0 | 访问口令 + 分级限流 + 体积上限 | 设置 `APP_ACCESS_CODE` 后启用品牌登录页 + `/enter?code=` 邀请链接 + 7 天 HttpOnly 会话 Cookie（Basic Auth 兼容，`/api/health` 免鉴权）；登录尝试 10 次/分钟、全 API 240 次/分钟、写接口 60 次/分钟、流式分析 20 次/分钟、试跑 10 次/分钟；JSON 4MB、图片 3MB，超限返回 429/413 |
+| P0 | 访问口令 + 分级限流 + 体积上限 | 设置 `APP_ACCESS_CODE` 后启用品牌登录页 + `/enter?code=` 邀请链接 + 7 天 HttpOnly 会话 Cookie（Basic Auth 兼容，`/api/health` 免鉴权）；Cookie 写请求做 Origin/CSRF 校验，会话失效（401/SSE/窗口聚焦复验）自动回登录页；登录尝试 10 次/分钟、全 API 240 次/分钟、写接口 60 次/分钟、流式分析 20 次/分钟、试跑 10 次/分钟；JSON 4MB、图片 3MB，超限返回 429/413 |
 | P1 | 试跑增强 | 可选关联订单/工单（融合卡补齐、风险联动）+ 买家画像分型出演（急躁/犹豫/理性）+ 话术「接情绪」前缀（情绪较强时差异化开场） |
 | P1 | 通义千问 Agent 模式 | 配置 `DASHSCOPE_API_KEY` 后自动启用（含买家 LLM 出演与情绪复评）；未配置全链路规则引擎兜底，演示不阻塞 |
 | P1 | 合规过滤与可观测性 | 模型话术后置扫描五类边界（医疗/功效/赔付/站外/隐私），命中整段替换为安全话术并安全回放；每次调用记录模型/token/耗时，trace 汇总 + `/api/llm/usage` 累计 |
 | P1 | 演示可控性 | 顶部「演示控制」：Agent / 规则引擎切换（持久化）、重跑当前、重置演示状态、演示走查脚本（四场景看点 + 一键跳转）；重置只清运行时层，不触碰赛题数据 |
 | P1 | MySQL 持久化 | 配置 `DB_HOST` 等后试跑记录重启不丢；未配置自动降级内存模式 |
 | P2 | 业务价值指标看板 | 洞察页 8 项代理指标（首响/会话时长/买家发言/复访/高风险/情绪缓和/正向收尾），全部由时间戳、轮次、情绪与画像确定性推导，可复算且不伪造 CSAT |
-| P2 | 工程化护栏 | 43 项 `node:test`（引擎/合规/留出集 + 138 口径、只演不做、TRY 隔离、入参校验、登录与 Cookie 会话不变量）；GitHub Actions 在每次 push/PR 自动跑 `typecheck + test + build`；非法 ID/动作/payload/upto/试跑输入在入口统一 400 |
+| P2 | 工程化护栏 | 45 项 `node:test`（引擎/合规/留出集 + 138 口径、只演不做、TRY 隔离、入参校验、登录 / Cookie 会话 / CSRF Origin 不变量）；GitHub Actions 在每次 push/PR 自动跑 `typecheck + test + build`；非法 ID/动作/payload/upto/试跑输入在入口统一 400 |
 | P2 | 导出演示报告 | 工作台右上角一键导出当前会话完整演示链路（HTML，可直接打开/打印 PDF） |
 | P3 | 深色模式 | 顶栏切换深色 / 浅色（框架级适配，localStorage 记忆） |

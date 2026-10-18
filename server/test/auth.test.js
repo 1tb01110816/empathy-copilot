@@ -10,12 +10,12 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import auth from '../src/routes/auth.js';
-import { accessGuard, sessionCookieName } from '../src/security.js';
+import { accessGuard, csrfGuard, sessionCookieName } from '../src/security.js';
 
 const app = express();
 app.use(express.json());
 app.use(auth);
-app.use('/api', accessGuard, (req, res) => res.json({ ok: true, path: req.path }));
+app.use('/api', accessGuard, csrfGuard, (req, res) => res.json({ ok: true, path: req.path }));
 
 let server;
 let base;
@@ -32,6 +32,16 @@ after(() => new Promise((resolve) => server.close(resolve)));
 function cookieFrom(res) {
   const raw = res.headers.get('set-cookie') || '';
   return raw.split(';')[0];
+}
+
+async function loginCookie() {
+  const res = await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: 'auth-test-code' }),
+  });
+  assert.equal(res.status, 200);
+  return cookieFrom(res);
 }
 
 test('auth: 未登录时 session 端点公开可读，业务 API 返回 401 JSON', async () => {
@@ -122,4 +132,43 @@ test('auth: 退出登录清除 Cookie', async () => {
   const setCookie = res.headers.get('set-cookie');
   assert.match(setCookie, new RegExp(`^${sessionCookieName}=;`));
   assert.match(setCookie, /Expires=/);
+});
+
+test('csrf: Cookie 会话的写接口拒绝跨站 Origin，同源/无 Origin 放行', async () => {
+  const cookie = await loginCookie();
+  const cross = await fetch(`${base}/api/write`, {
+    method: 'POST',
+    headers: { cookie, origin: 'https://evil.example', 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(cross.status, 403);
+  assert.equal((await cross.json()).code, 'ORIGIN_FORBIDDEN');
+
+  const same = await fetch(`${base}/api/write`, {
+    method: 'POST',
+    headers: { cookie, origin: base, 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(same.status, 200);
+
+  const noOrigin = await fetch(`${base}/api/write`, {
+    method: 'POST',
+    headers: { cookie, 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(noOrigin.status, 200);
+});
+
+test('csrf: Basic Auth 与非写方法不受 Origin 限制', async () => {
+  const authHeader = `Basic ${Buffer.from('demo:auth-test-code').toString('base64')}`;
+  const basic = await fetch(`${base}/api/write`, {
+    method: 'POST',
+    headers: { authorization: authHeader, origin: 'https://evil.example', 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(basic.status, 200);
+
+  const cookie = await loginCookie();
+  const read = await fetch(`${base}/api/overview`, { headers: { cookie, origin: 'https://evil.example' } });
+  assert.equal(read.status, 200);
 });
